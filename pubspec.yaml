@@ -109,11 +109,11 @@ flutter:
 # fonts:
 
 flutter_to_arch:
-  name: Venera
+  name: Venera Netmatic
   icon: debian/gui/venera.png
   categories: Utility
   keywords: Flutter;comic;images;
-  url: https://github.com/venera-app/venera
+  url: https://github.com/Piaomobai/venera-netmatic
   depends:
     - gtk3
     - webkit2gtk-4.1

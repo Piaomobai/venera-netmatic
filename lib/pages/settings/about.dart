@@ -40,7 +40,15 @@ class _AboutSettingsState extends State<AboutSettings> {
               "V${App.version}",
               style: const TextStyle(fontSize: 16),
             ),
-            Text("Venera is a free and open-source app for comic reading.".tl),
+            const Text(
+              "Venera Netmatic",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            Text(
+              "Venera Netmatic is an unofficial free and open-source modification of Venera."
+                  .tl,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
           ],
         ).toSliver(),
@@ -66,17 +74,17 @@ class _AboutSettingsState extends State<AboutSettings> {
           settingKey: "checkUpdateOnStart",
         ).toSliver(),
         ListTile(
-          title: const Text("Github"),
+          title: const Text("GitHub - Venera Netmatic"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://github.com/venera-app/venera");
+            launchUrlString("https://github.com/Piaomobai/venera-netmatic");
           },
         ).toSliver(),
         ListTile(
-          title: const Text("Telegram"),
+          title: const Text("Upstream Venera"),
           trailing: const Icon(Icons.open_in_new),
           onTap: () {
-            launchUrlString("https://t.me/venera_release");
+            launchUrlString("https://github.com/venera-app/venera");
           },
         ).toSliver(),
       ],
@@ -85,8 +93,8 @@ class _AboutSettingsState extends State<AboutSettings> {
 }
 
 Future<bool> checkUpdate() async {
-  var res = await AppDio()
-      .get("https://cdn.jsdelivr.net/gh/venera-app/venera@master/pubspec.yaml");
+  var res = await AppDio().get(
+      "https://raw.githubusercontent.com/Piaomobai/venera-netmatic/main/pubspec.yaml");
   if (res.statusCode == 200) {
     var data = loadYaml(res.data);
     if (data["version"] != null) {
@@ -117,7 +125,7 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
                   onPressed: () {
                     Navigator.pop(context);
                     launchUrlString(
-                        "https://github.com/venera-app/venera/releases");
+                        "https://github.com/Piaomobai/venera-netmatic/releases");
                   },
                   child: Text("Update".tl),
                 ),

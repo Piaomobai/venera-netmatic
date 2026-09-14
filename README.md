@@ -9,6 +9,8 @@ Venera Netmatic 是基于开源漫画阅读器 [Venera](https://github.com/vener
 
 本项目不是 Venera 官方版本，与原项目维护者不存在隶属、认可或支持关系。遇到本修改版的问题，请在本仓库反馈，不要向原项目维护者寻求支持。
 
+本修改版目前保留了上游仓库随源码提供的应用图标。该图标随本项目继续在 GPL-3.0 条款下分发；本项目不主张对 “Venera” 名称或原图标拥有任何商标权，也不以它们暗示官方身份。公开发行时，建议继续使用 **Venera Netmatic** 完整名称并保留本声明。
+
 ## 项目来源与修改声明
 
 - 上游项目：[venera-app/venera](https://github.com/venera-app/venera)
