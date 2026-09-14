@@ -35,7 +35,10 @@ class LocalComicsPage extends StatefulWidget {
   static Map<String, List<LocalComic>> groupBySource(List<LocalComic> comics) {
     final grouped = <String, List<LocalComic>>{};
     for (final comic in comics) {
-      final key = LocalManager.sourceFolderName(comic.comicType);
+      final key = LocalManager.sourceFolderName(
+        comic.comicType,
+        sourceKey: comic.sourceKey,
+      );
       grouped.putIfAbsent(key, () => <LocalComic>[]).add(comic);
     }
     // Locally imported comics come from no source; keep them last so the named
@@ -523,9 +526,11 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
             }
           });
         } else {
-          // [c] may come from a source that is no longer installed, in which
-          // case its type cannot be resolved back to the stored row.
-          var comic = LocalManager().find(c.id, ComicType.fromKey(c.sourceKey));
+          // The source key is a display/serialization value.  It may be an
+          // `Unknown:<hash>` placeholder when the source script is absent, so
+          // resolve the row with the type already persisted on the tile.
+          final local = c as LocalComic;
+          var comic = LocalManager().find(local.id, local.comicType);
           if (comic == null) {
             context.showMessage(message: "Comic not found".tl);
             return;

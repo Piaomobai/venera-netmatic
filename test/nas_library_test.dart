@@ -54,6 +54,16 @@ void main() {
     },
   );
 
+  test('recovers a source key from legacy NAS directory metadata', () {
+    final comic = NasLibraryComic.fromJson({
+      'sourceKey': 'Unknown:553570794',
+      'title': 'Legacy NAS comic',
+      'directory': 'Picacg/Author/Legacy NAS comic',
+    });
+
+    expect(comic.resolvedSourceKey, 'picacg');
+  });
+
   testWidgets('offers direct NAS connection management when none exist', (
     tester,
   ) async {

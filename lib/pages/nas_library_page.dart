@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/history.dart';
+import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/nas/nas_connection.dart';
 import 'package:venera/foundation/nas/nas_library.dart';
 import 'package:venera/foundation/nas/nas_manager.dart';
@@ -12,7 +13,8 @@ import 'package:venera/pages/nas_sync_progress.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
 
-/// A read-only browser for comics previously synchronized to a NAS.
+/// A browser for comics previously synchronized to a NAS, with optional local
+/// import for offline reading.
 class NasLibraryPage extends StatefulWidget {
   const NasLibraryPage({super.key});
 
@@ -82,6 +84,17 @@ class _NasLibraryPageState extends State<NasLibraryPage> {
     });
     try {
       final comics = await NasLibraryService(connection).loadComics();
+      // Older builds persisted only the source hash.  The NAS index has the
+      // original key (or, for legacy indexes, the source folder), so use a
+      // metadata refresh to repair those local rows without forcing the user
+      // to download the comic again.
+      for (final comic in comics) {
+        LocalManager().setOriginalSourceKey(
+          comic.id,
+          comic.comicType,
+          comic.resolvedSourceKey,
+        );
+      }
       if (mounted) setState(() => _comics = comics);
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -412,7 +425,7 @@ class _NasCover extends StatelessWidget {
   );
 }
 
-class NasComicDetailPage extends StatelessWidget {
+class NasComicDetailPage extends StatefulWidget {
   const NasComicDetailPage({
     required this.comic,
     required this.service,
@@ -423,9 +436,60 @@ class NasComicDetailPage extends StatelessWidget {
   final NasLibraryService service;
 
   @override
+  State<NasComicDetailPage> createState() => _NasComicDetailPageState();
+}
+
+class _NasComicDetailPageState extends State<NasComicDetailPage> {
+  bool _downloading = false;
+  int _downloadedFiles = 0;
+  int _totalFiles = 0;
+  String? _downloadPath;
+
+  Future<void> _downloadToLocal() async {
+    if (_downloading) return;
+    setState(() {
+      _downloading = true;
+      _downloadedFiles = 0;
+      _totalFiles = 0;
+      _downloadPath = null;
+    });
+    try {
+      await widget.service.downloadComic(
+        widget.comic,
+        onProgress: (completed, total, path) {
+          if (!mounted) return;
+          setState(() {
+            _downloadedFiles = completed;
+            _totalFiles = total;
+            _downloadPath = path;
+          });
+        },
+      );
+      if (mounted) {
+        context.showMessage(message: 'Comic downloaded locally'.tl);
+      }
+    } catch (error, stack) {
+      Log.error('NAS', 'Failed to download comic from NAS: $error', stack);
+      if (mounted) {
+        context.showMessage(
+          message: 'NAS download failed: @a'.tlParams({'a': error.toString()}),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final comic = widget.comic;
+    final service = widget.service;
     final chapterCount = comic.chapters?.length ?? 0;
     final storedChapters = comic.downloadedChapters.length;
+    final local = LocalManager().find(comic.id, comic.comicType);
+    final isCloudSynced =
+        local != null &&
+        NasManager.instance.isComicSynced(service.connection.id, local);
     return Scaffold(
       appBar: AppBar(title: Text(comic.title)),
       body: ListView(
@@ -470,6 +534,41 @@ class NasComicDetailPage extends StatelessWidget {
             icon: const Icon(Icons.menu_book_outlined),
             label: Text('Read from NAS'.tl),
           ),
+          const SizedBox(height: 10),
+          if (isCloudSynced)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                Icons.cloud_done,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text('Downloaded locally and synced to NAS'.tl),
+              subtitle: Text('This copy will be skipped by the next sync.'.tl),
+            )
+          else
+            OutlinedButton.icon(
+              key: const Key('nas-comic-download-local'),
+              onPressed: _downloading ? null : _downloadToLocal,
+              icon: const Icon(Icons.download_for_offline_outlined),
+              label: Text('Download to local'.tl),
+            ),
+          if (_downloading) ...[
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: _totalFiles > 0 ? _downloadedFiles / _totalFiles : null,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _totalFiles > 0
+                  ? '@a/@b files · @c'.tlParams({
+                      'a': _downloadedFiles.toString(),
+                      'b': _totalFiles.toString(),
+                      'c': _downloadPath ?? '',
+                    })
+                  : 'Preparing NAS download'.tl,
+              style: ts.s12,
+            ),
+          ],
         ],
       ),
     );

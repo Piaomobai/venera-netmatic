@@ -45,6 +45,14 @@ class LocalComic with HistoryMixin implements Comic {
 
   final ComicType comicType;
 
+  /// The source identifier that was used when this comic was downloaded.
+  ///
+  /// [ComicType] stores a source as a hash for the local database.  That hash
+  /// cannot be turned back into `picacg`, `jmcomic`, etc. when the source
+  /// script is not installed on the current device.  Keep the original key
+  /// alongside the hash so NAS downloads remain portable across platforms.
+  final String? originalSourceKey;
+
   final List<String> downloadedChapters;
 
   final DateTime createdAt;
@@ -58,26 +66,25 @@ class LocalComic with HistoryMixin implements Comic {
     required this.chapters,
     required this.cover,
     required this.comicType,
+    this.originalSourceKey,
     required this.downloadedChapters,
     required this.createdAt,
   });
 
   LocalComic.fromRow(Row row)
-      : id = row[0] as String,
-        title = row[1] as String,
-        subtitle = row[2] as String,
-        tags = List.from(jsonDecode(row[3] as String)),
-        directory = row[4] as String,
-        chapters = ComicChapters.fromJsonOrNull(jsonDecode(row[5] as String)),
-        cover = row[6] as String,
-        comicType = ComicType(row[7] as int),
-        downloadedChapters = List.from(jsonDecode(row[8] as String)),
-        createdAt = DateTime.fromMillisecondsSinceEpoch(row[9] as int);
+    : id = row[0] as String,
+      title = row[1] as String,
+      subtitle = row[2] as String,
+      tags = List.from(jsonDecode(row[3] as String)),
+      directory = row[4] as String,
+      chapters = ComicChapters.fromJsonOrNull(jsonDecode(row[5] as String)),
+      cover = row[6] as String,
+      comicType = ComicType(row[7] as int),
+      downloadedChapters = List.from(jsonDecode(row[8] as String)),
+      createdAt = DateTime.fromMillisecondsSinceEpoch(row[9] as int),
+      originalSourceKey = row['source_key'] as String?;
 
-  File get coverFile => File(FilePath.join(
-        baseDir,
-        cover,
-      ));
+  File get coverFile => File(FilePath.join(baseDir, cover));
 
   /// Absolute path of the directory holding this comic.
   ///
@@ -97,12 +104,15 @@ class LocalComic with HistoryMixin implements Comic {
   String get description => "";
 
   @override
-  String get sourceKey => comicType == ComicType.local
-      ? "local"
-      // The comic was downloaded from a source that is no longer installed, in
-      // which case [ComicType.sourceKey] would assert. Fall back to the same
-      // placeholder [FavoriteItem] uses so the library stays browsable.
-      : comicType.comicSource?.key ?? "Unknown:${comicType.value}";
+  String get sourceKey {
+    if (comicType == ComicType.local) return "local";
+    final stored = originalSourceKey?.trim();
+    if (stored != null && stored.isNotEmpty) return stored;
+    // The comic was downloaded from a source that is no longer installed, in
+    // which case [ComicType.sourceKey] would assert. Fall back to the same
+    // placeholder [FavoriteItem] uses so the library stays browsable.
+    return comicType.comicSource?.key ?? "Unknown:${comicType.value}";
+  }
 
   @override
   Map<String, dynamic> toJson() {
@@ -128,10 +138,10 @@ class LocalComic with HistoryMixin implements Comic {
     if (downloadedChapters.isNotEmpty && chapters != null) {
       final chapters = this.chapters!;
       if (chapters.isGrouped) {
-        for (int i=0; i<chapters.groupCount; i++) {
+        for (int i = 0; i < chapters.groupCount; i++) {
           var group = chapters.getGroupByIndex(i);
           var keys = group.keys.toList();
-          for (int j=0; j<keys.length; j++) {
+          for (int j = 0; j < keys.length; j++) {
             var chapterId = keys[j];
             if (downloadedChapters.contains(chapterId)) {
               firstDownloadedChapter = j + 1;
@@ -159,15 +169,10 @@ class LocalComic with HistoryMixin implements Comic {
         initialChapter: history?.ep ?? firstDownloadedChapter,
         initialPage: history?.page,
         initialChapterGroup: history?.group ?? firstDownloadedChapterGroup,
-        history: history ??
-            History.fromModel(
-              model: this,
-              ep: 0,
-              page: 0,
-            ),
+        history: history ?? History.fromModel(model: this, ep: 0, page: 0),
         author: subtitle,
         tags: tags,
-      )
+      ),
     );
   }
 
@@ -222,12 +227,10 @@ class LocalManager with ChangeNotifier {
       return "Directory is not empty";
     }
     try {
-      await copyDirectoryIsolate(
-        directory,
-        newDir,
-      );
-      await File(FilePath.join(App.dataPath, 'local_path'))
-          .writeAsString(newPath);
+      await copyDirectoryIsolate(directory, newDir);
+      await File(
+        FilePath.join(App.dataPath, 'local_path'),
+      ).writeAsString(newPath);
     } catch (e, s) {
       Log.error("IO", e, s);
       return e.toString();
@@ -266,16 +269,16 @@ class LocalManager with ChangeNotifier {
       testFile.createSync();
       testFile.deleteSync();
     } catch (e) {
-      Log.error("IO",
-          "Failed to create test file in local path: $e\nUsing default path instead.");
+      Log.error(
+        "IO",
+        "Failed to create test file in local path: $e\nUsing default path instead.",
+      );
       path = await findDefaultPath();
     }
   }
 
   Future<void> init() async {
-    _db = sqlite3.open(
-      '${App.dataPath}/local.db',
-    );
+    _db = sqlite3.open('${App.dataPath}/local.db');
     _db.execute('''
       CREATE TABLE IF NOT EXISTS comics (
         id TEXT NOT NULL,
@@ -288,9 +291,17 @@ class LocalManager with ChangeNotifier {
         comic_type INTEGER NOT NULL,
         downloadedChapters TEXT NOT NULL,
         created_at INTEGER,
+        source_key TEXT,
         PRIMARY KEY (id, comic_type)
       );
     ''');
+    // `source_key` was added after the first database format.  Keep existing
+    // libraries readable while preserving the original source for every new
+    // NAS download.
+    final columns = _db.select('PRAGMA table_info(comics);');
+    if (!columns.any((column) => column['name'] == 'source_key')) {
+      _db.execute('ALTER TABLE comics ADD COLUMN source_key TEXT;');
+    }
     if (File(FilePath.join(App.dataPath, 'local_path')).existsSync()) {
       path = File(FilePath.join(App.dataPath, 'local_path')).readAsStringSync();
       if (!directory.existsSync()) {
@@ -333,8 +344,19 @@ class LocalManager with ChangeNotifier {
     if (old != null) {
       downloaded.addAll(old.downloadedChapters);
     }
+    final originalSourceKey =
+        comic.originalSourceKey ??
+        old?.originalSourceKey ??
+        (comic.comicType == ComicType.local
+            ? null
+            : comic.comicType.comicSource?.key);
     _db.execute(
-      'INSERT OR REPLACE INTO comics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+      '''
+      INSERT OR REPLACE INTO comics
+        (id, title, subtitle, tags, directory, chapters, cover, comic_type,
+         downloadedChapters, created_at, source_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ''',
       [
         id ?? comic.id,
         comic.title,
@@ -346,16 +368,17 @@ class LocalManager with ChangeNotifier {
         comic.comicType.value,
         jsonEncode(downloaded),
         comic.createdAt.millisecondsSinceEpoch,
+        originalSourceKey,
       ],
     );
     notifyListeners();
   }
 
   void remove(String id, ComicType comicType) async {
-    _db.execute(
-      'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-      [id, comicType.value],
-    );
+    _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+      id,
+      comicType.value,
+    ]);
     notifyListeners();
   }
 
@@ -386,6 +409,22 @@ class LocalManager with ChangeNotifier {
     return LocalComic.fromRow(res.first);
   }
 
+  /// Records the source key supplied by a NAS index without downloading any
+  /// files.  This upgrades rows created by an older build, which only stored
+  /// the source hash and therefore displayed `Source <hash>` on devices that
+  /// do not have the source script installed.
+  void setOriginalSourceKey(String id, ComicType comicType, String sourceKey) {
+    final key = sourceKey.trim();
+    if (key.isEmpty || comicType == ComicType.local) return;
+    final comic = find(id, comicType);
+    if (comic == null || comic.originalSourceKey == key) return;
+    _db.execute(
+      'UPDATE comics SET source_key = ? WHERE id = ? AND comic_type = ?;',
+      [key, id, comicType.value],
+    );
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     super.dispose();
@@ -409,10 +448,13 @@ class LocalManager with ChangeNotifier {
   }
 
   LocalComic? findByName(String name) {
-    final res = _db.select('''
+    final res = _db.select(
+      '''
       SELECT * FROM comics
       WHERE title = ? OR directory = ?;
-    ''', [name, name]);
+    ''',
+      [name, name],
+    );
     if (res.isEmpty) {
       return null;
     }
@@ -423,11 +465,14 @@ class LocalManager with ChangeNotifier {
     // `directory` is searched too: downloads are grouped as
     // `<source>/<author>/<title>`, so matching it lets a user find everything
     // from one source or author by typing that name.
-    final res = _db.select('''
+    final res = _db.select(
+      '''
       SELECT * FROM comics
       WHERE title LIKE ? OR tags LIKE ? OR subtitle LIKE ? OR directory LIKE ?
       ORDER BY created_at DESC;
-    ''', ['%$keyword%', '%$keyword%', '%$keyword%', '%$keyword%']);
+    ''',
+      ['%$keyword%', '%$keyword%', '%$keyword%', '%$keyword%'],
+    );
     return res.map((row) => LocalComic.fromRow(row)).toList();
   }
 
@@ -438,8 +483,9 @@ class LocalManager with ChangeNotifier {
     var comic = find(id, type) ?? (throw "Comic Not Found");
     var directory = Directory(comic.baseDir);
     if (comic.hasChapters) {
-      var cid =
-          ep is int ? comic.chapters!.ids.elementAt(ep - 1) : (ep as String);
+      var cid = ep is int
+          ? comic.chapters!.ids.elementAt(ep - 1)
+          : (ep as String);
       cid = getChapterDirectoryName(cid);
       directory = Directory(FilePath.join(directory.path, cid));
     }
@@ -469,37 +515,46 @@ class LocalManager with ChangeNotifier {
     return files.map((e) => "file://${e.path}").toList();
   }
 
-  bool isDownloaded(String id, ComicType type,
-      [int? ep, ComicChapters? chapters]) {
+  bool isDownloaded(
+    String id,
+    ComicType type, [
+    int? ep,
+    ComicChapters? chapters,
+  ]) {
     var comic = find(id, type);
     if (comic == null) return false;
     if (comic.chapters == null || ep == null) return true;
     if (chapters != null) {
       if (comic.chapters?.length != chapters.length) {
         // update
-        add(LocalComic(
-          id: comic.id,
-          title: comic.title,
-          subtitle: comic.subtitle,
-          tags: comic.tags,
-          directory: comic.directory,
-          chapters: chapters,
-          cover: comic.cover,
-          comicType: comic.comicType,
-          downloadedChapters: comic.downloadedChapters,
-          createdAt: comic.createdAt,
-        ));
+        add(
+          LocalComic(
+            id: comic.id,
+            title: comic.title,
+            subtitle: comic.subtitle,
+            tags: comic.tags,
+            directory: comic.directory,
+            chapters: chapters,
+            cover: comic.cover,
+            comicType: comic.comicType,
+            originalSourceKey: comic.originalSourceKey,
+            downloadedChapters: comic.downloadedChapters,
+            createdAt: comic.createdAt,
+          ),
+        );
       }
     }
-    return comic.downloadedChapters
-        .contains((chapters ?? comic.chapters)!.ids.elementAtOrNull(ep - 1));
+    return comic.downloadedChapters.contains(
+      (chapters ?? comic.chapters)!.ids.elementAtOrNull(ep - 1),
+    );
   }
 
   List<DownloadTask> downloadingTasks = [];
 
   bool isDownloading(String id, ComicType type) {
-    return downloadingTasks
-        .any((element) => element.id == id && element.comicType == type);
+    return downloadingTasks.any(
+      (element) => element.id == id && element.comicType == type,
+    );
   }
 
   Future<Directory> findValidDirectory(
@@ -507,6 +562,7 @@ class LocalManager with ChangeNotifier {
     ComicType type,
     String name, {
     String? author,
+    String? sourceKey,
   }) async {
     var comic = find(id, type);
     if (comic != null) {
@@ -518,11 +574,13 @@ class LocalManager with ChangeNotifier {
     }
     // Group downloads as `<source>/<author>/<title>` so the library has a
     // browsable hierarchy instead of one flat pile of folders.
-    final parent = Directory(FilePath.join(
-      path,
-      sourceFolderName(type),
-      authorFolderName(author),
-    ));
+    final parent = Directory(
+      FilePath.join(
+        path,
+        sourceFolderName(type, sourceKey: sourceKey),
+        authorFolderName(author),
+      ),
+    );
     if (!parent.existsSync()) {
       await parent.create(recursive: true);
     }
@@ -537,13 +595,22 @@ class LocalManager with ChangeNotifier {
   /// `ComicType.sourceKey` asserts that the source is installed, which is not
   /// guaranteed -- a comic may have been downloaded from a source the user has
   /// since removed.
-  static String sourceFolderName(ComicType type) {
-    final label = type.comicSource?.name.trim();
+  static String sourceFolderName(ComicType type, {String? sourceKey}) {
+    final key = sourceKey?.trim();
+    final source = key == null || key.isEmpty || key == 'local'
+        ? type.comicSource
+        : ComicSource.find(key) ?? type.comicSource;
+    final label = source?.name.trim();
     if (label != null && label.isNotEmpty) {
       return sanitizeFileName(label);
     }
     if (type.value == ComicType.local.value) {
       return 'local';
+    }
+    // A source script may be unavailable on this device.  The original key
+    // is still a better and stable folder/group name than its integer hash.
+    if (key != null && key.isNotEmpty && !key.startsWith('Unknown:')) {
+      return sanitizeFileName(key);
     }
     return sanitizeFileName('Source ${type.value}');
   }
@@ -603,8 +670,9 @@ class LocalManager with ChangeNotifier {
 
   Future<void> saveCurrentDownloadingTasks() async {
     var tasks = downloadingTasks.map((e) => e.toJson()).toList();
-    await File(FilePath.join(App.dataPath, 'downloading_tasks.json'))
-        .writeAsString(jsonEncode(tasks));
+    await File(
+      FilePath.join(App.dataPath, 'downloading_tasks.json'),
+    ).writeAsString(jsonEncode(tasks));
   }
 
   void restoreDownloadingTasks() {
@@ -663,24 +731,19 @@ class LocalManager with ChangeNotifier {
     if (newDownloadedChapters.isNotEmpty) {
       _db.execute(
         'UPDATE comics SET downloadedChapters = ? WHERE id = ? AND comic_type = ?;',
-        [
-          jsonEncode(newDownloadedChapters),
-          c.id,
-          c.comicType.value,
-        ],
+        [jsonEncode(newDownloadedChapters), c.id, c.comicType.value],
       );
     } else {
-      _db.execute(
-        'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-        [c.id, c.comicType.value],
-      );
+      _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+        c.id,
+        c.comicType.value,
+      ]);
     }
     var shouldRemovedDirs = <Directory>[];
     for (var chapter in chapters) {
-      var dir = Directory(FilePath.join(
-        c.baseDir,
-        getChapterDirectoryName(chapter),
-      ));
+      var dir = Directory(
+        FilePath.join(c.baseDir, getChapterDirectoryName(chapter)),
+      );
       if (dir.existsSync()) {
         shouldRemovedDirs.add(dir);
       }
@@ -691,7 +754,11 @@ class LocalManager with ChangeNotifier {
     notifyListeners();
   }
 
-  void batchDeleteComics(List<LocalComic> comics, [bool removeFileOnDisk = true, bool removeFavoriteAndHistory = true]) {
+  void batchDeleteComics(
+    List<LocalComic> comics, [
+    bool removeFileOnDisk = true,
+    bool removeFavoriteAndHistory = true,
+  ]) {
     if (comics.isEmpty) {
       return;
     }
@@ -706,13 +773,12 @@ class LocalManager with ChangeNotifier {
             shouldRemovedDirs.add(dir);
           }
         }
-        _db.execute(
-          'DELETE FROM comics WHERE id = ? AND comic_type = ?;',
-          [c.id, c.comicType.value],
-        );
+        _db.execute('DELETE FROM comics WHERE id = ? AND comic_type = ?;', [
+          c.id,
+          c.comicType.value,
+        ]);
       }
-    }
-    catch(e, s) {
+    } catch (e, s) {
       Log.error("LocalManager", "Failed to batch delete comics: $e", s);
       _db.execute('ROLLBACK;');
       return;
@@ -753,9 +819,15 @@ class LocalManager with ChangeNotifier {
     var builder = StringBuffer();
     for (var i = 0; i < name.length; i++) {
       var char = name[i];
-      if (char == '/' || char == '\\' || char == ':' || char == '*' ||
-          char == '?'
-          || char == '"' || char == '<' || char == '>' || char == '|') {
+      if (char == '/' ||
+          char == '\\' ||
+          char == ':' ||
+          char == '*' ||
+          char == '?' ||
+          char == '"' ||
+          char == '<' ||
+          char == '>' ||
+          char == '|') {
         builder.write('_');
       } else {
         builder.write(char);

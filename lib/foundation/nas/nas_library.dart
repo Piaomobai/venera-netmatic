@@ -1,19 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
+import 'package:venera/utils/io.dart';
 
 import 'nas_connection.dart';
+import 'nas_manager.dart';
 import 'nas_remote_client.dart';
+
+typedef NasLibraryDownloadProgress =
+    void Function(int completedFiles, int totalFiles, String currentPath);
 
 /// Metadata written by [NasManager] alongside a synchronized comic library.
 ///
-/// It deliberately contains only the information needed to browse the NAS. It
-/// does not add NAS records to the local SQLite library, so browsing a remote
-/// connection never changes the user's local collection.
+/// It deliberately contains only the information needed to browse the NAS.
+/// Loading the index is read-only; an explicit [NasLibraryService.downloadComic]
+/// call is required before anything is added to the local SQLite library.
 class NasLibraryComic with HistoryMixin {
   const NasLibraryComic({
     required this.id,
@@ -43,6 +48,30 @@ class NasLibraryComic with HistoryMixin {
   final DateTime? createdAt;
 
   bool get hasChapters => chapters != null;
+
+  /// Returns the best source identifier available for persistence.
+  ///
+  /// Older NAS indexes were generated from a local row that only knew the
+  /// integer source hash, so they contain `Unknown:<hash>`.  The directory
+  /// hierarchy still carries the source folder (for example `Picacg/...`),
+  /// which lets us repair those old records instead of losing the source name
+  /// forever.  New indexes keep the exact source key and take the first path.
+  String get resolvedSourceKey {
+    final stored = sourceKey.trim();
+    if (!stored.startsWith('Unknown:')) return stored;
+    final normalized = normalizeRemotePath(directory);
+    final first = normalized.split('/').first.trim();
+    if (first.isEmpty || first.toLowerCase().startsWith('source ')) {
+      return stored;
+    }
+    for (final source in ComicSource.all()) {
+      if (source.key.toLowerCase() == first.toLowerCase() ||
+          source.name.toLowerCase() == first.toLowerCase()) {
+        return source.key;
+      }
+    }
+    return first.toLowerCase();
+  }
 
   ComicType get comicType {
     const unknownPrefix = 'Unknown:';
@@ -137,6 +166,93 @@ class NasLibraryService {
   Future<List<String>> imagePaths(NasLibraryComic comic, {String? chapterId}) =>
       _withClient((client) => _imagePaths(client, comic, chapterId));
 
+  /// Downloads the files currently available for [comic] into the local
+  /// library and registers the result as a normal [LocalComic].  The NAS
+  /// marker is written only after every file has been read successfully, so a
+  /// partial transfer can never be mistaken for a fully synchronized comic.
+  Future<LocalComic> downloadComic(
+    NasLibraryComic comic, {
+    NasLibraryDownloadProgress? onProgress,
+  }) async {
+    final type = comic.comicType;
+    final existing = LocalManager().find(comic.id, type);
+    final baseDirectory = await _findLocalDirectory(comic, existing);
+    final base = Directory(baseDirectory);
+    await base.create(recursive: true);
+
+    final session = openSession();
+    final remoteFiles = <String>[];
+    final downloadedChapters = <String>[];
+    try {
+      if (comic.cover.trim().isNotEmpty) {
+        remoteFiles.add(_relativeFilePath(comic.cover));
+      }
+
+      if (comic.chapters == null) {
+        remoteFiles.addAll(await session.imagePaths(comic));
+      } else {
+        // Older index files did not always persist downloadedChapters.  In
+        // that case probe all chapter directories and keep only those that
+        // actually contain images.
+        final chapterIds = comic.downloadedChapters.isNotEmpty
+            ? comic.downloadedChapters
+            : comic.chapters!.ids.toList();
+        for (final chapterId in chapterIds) {
+          final images = await session.imagePaths(comic, chapterId: chapterId);
+          if (images.isEmpty) continue;
+          downloadedChapters.add(chapterId);
+          remoteFiles.addAll(images);
+        }
+      }
+
+      final files = <String>[];
+      final seen = <String>{};
+      for (final path in remoteFiles) {
+        final normalized = _relativeFilePath(path);
+        if (seen.add(normalized)) files.add(normalized);
+      }
+      if (files.isEmpty) {
+        throw StateError('No readable files found for this comic on the NAS');
+      }
+
+      for (var index = 0; index < files.length; index++) {
+        final relative = files[index];
+        final bytes = await session.readComicFile(comic, relative);
+        if (bytes == null || bytes.isEmpty) {
+          throw StateError('NAS file not found: $relative');
+        }
+        final localFile = File(FilePath.join(base.path, relative));
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(bytes, flush: true);
+        onProgress?.call(index + 1, files.length, relative);
+      }
+
+      final allDownloadedChapters = <String>{
+        ...?existing?.downloadedChapters,
+        ...downloadedChapters,
+      }.toList();
+      final localComic = LocalComic(
+        id: comic.id,
+        title: comic.title,
+        subtitle: comic.subtitle,
+        tags: List<String>.from(comic.tags),
+        directory: LocalManager().relativeDirectoryOf(base.path),
+        chapters: comic.chapters,
+        cover: comic.cover.trim().isEmpty ? '' : _relativeFilePath(comic.cover),
+        comicType: type,
+        originalSourceKey: comic.resolvedSourceKey,
+        downloadedChapters: allDownloadedChapters,
+        createdAt: comic.createdAt ?? DateTime.now(),
+      );
+      await LocalManager().add(localComic);
+      final persisted = LocalManager().find(comic.id, type) ?? localComic;
+      await NasManager.instance.markComicSynced(connection.id, persisted);
+      return persisted;
+    } finally {
+      await session.close();
+    }
+  }
+
   NasLibrarySession openSession() => NasLibrarySession._(this);
 
   Future<List<String>> _imagePaths(
@@ -170,9 +286,52 @@ class NasLibraryService {
       joinRemotePath([
         connection.remotePath,
         'library',
-        comic.directory,
+        normalizeRemotePath(comic.directory),
         relativePath,
       ]);
+
+  String _relativeFilePath(String path) {
+    final normalized = normalizeRemotePath(path);
+    if (normalized.isEmpty) {
+      throw const FormatException('NAS file path cannot be empty');
+    }
+    return normalized;
+  }
+
+  Future<String> _findLocalDirectory(
+    NasLibraryComic comic,
+    LocalComic? existing,
+  ) async {
+    if (existing != null) return existing.baseDir;
+
+    String? candidatePath;
+    try {
+      final relative = normalizeRemotePath(comic.directory);
+      if (relative.isNotEmpty) {
+        candidatePath = FilePath.join(LocalManager().path, relative);
+      }
+    } catch (_) {
+      candidatePath = null;
+    }
+    if (candidatePath != null) {
+      final candidate = Directory(candidatePath);
+      final occupied = LocalManager()
+          .getComics(LocalSortType.timeDesc)
+          .any((item) => item.baseDir == candidate.path);
+      if (!occupied &&
+          (!candidate.existsSync() || candidate.listSync().isEmpty)) {
+        return candidate.path;
+      }
+    }
+    final directory = await LocalManager().findValidDirectory(
+      comic.id,
+      comic.comicType,
+      comic.title,
+      author: comic.subtitle,
+      sourceKey: comic.resolvedSourceKey,
+    );
+    return directory.path;
+  }
 
   bool _isImage(String path) {
     final dot = path.lastIndexOf('.');
@@ -210,6 +369,19 @@ class NasLibrarySession {
 
   final NasLibraryService _service;
   NasRemoteClient? _client;
+  Future<void> _operation = Future<void>.value();
+
+  Future<T> _exclusive<T>(Future<T> Function() action) async {
+    final previous = _operation;
+    final gate = Completer<void>();
+    _operation = gate.future;
+    await previous;
+    try {
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
 
   Future<NasRemoteClient> _connectedClient() async {
     final current = _client;
@@ -231,16 +403,30 @@ class NasLibrarySession {
     NasLibraryComic comic,
     String relativePath,
   ) async {
-    final client = await _connectedClient();
-    return client.readBytes(_service._comicPath(comic, relativePath));
+    return _exclusive(() async {
+      final path = _service._comicPath(comic, relativePath);
+      // FTP servers in particular do not permit overlapping commands on one
+      // control connection.  Serialize reads and reconnect once after a
+      // dropped/expired connection so page preloading cannot break the
+      // reader for the rest of the session.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final client = await _connectedClient();
+        final bytes = await client.readBytes(path);
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+        await close();
+      }
+      return null;
+    });
   }
 
   Future<List<String>> imagePaths(
     NasLibraryComic comic, {
     String? chapterId,
   }) async {
-    final client = await _connectedClient();
-    return _service._imagePaths(client, comic, chapterId);
+    return _exclusive(() async {
+      final client = await _connectedClient();
+      return _service._imagePaths(client, comic, chapterId);
+    });
   }
 
   Future<void> close() async {

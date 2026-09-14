@@ -6,7 +6,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.0.0-test.2
+        default: v2.0.0
 
 concurrency:
   group: test-release-${{ inputs.tag }}

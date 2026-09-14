@@ -13,7 +13,9 @@ export "widget_utils.dart";
 export "context.dart";
 
 class _App {
-  final version = "0.0.0-test.2";
+  /// Public app version used by comic-source compatibility checks and the
+  /// About page. Keep this in sync with the version in pubspec.yaml.
+  final version = "2.0.0";
 
   bool get isAndroid => Platform.isAndroid;
 
