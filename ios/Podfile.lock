@@ -1,0 +1,75 @@
+PODS:
+  - Flutter (1.0.0)
+  - flutter_7zip (0.0.1):
+    - Flutter
+  - flutter_file_dialog (0.0.1):
+    - Flutter
+  - flutter_inappwebview_ios (0.0.1):
+    - Flutter
+    - flutter_inappwebview_ios/Core (= 0.0.1)
+    - OrderedSet (~> 6.0.3)
+  - flutter_inappwebview_ios/Core (0.0.1):
+    - Flutter
+    - OrderedSet (~> 6.0.3)
+  - flutter_memory_info (0.0.1):
+    - Flutter
+  - flutter_qjs (0.0.1):
+    - Flutter
+  - lodepng_flutter (0.0.1):
+    - Flutter
+  - OrderedSet (6.0.3)
+  - rhttp (0.0.1):
+    - Flutter
+  - zip_flutter (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - flutter_7zip (from `.symlinks/plugins/flutter_7zip/ios`)
+  - flutter_file_dialog (from `.symlinks/plugins/flutter_file_dialog/ios`)
+  - flutter_inappwebview_ios (from `.symlinks/plugins/flutter_inappwebview_ios/ios`)
+  - flutter_memory_info (from `.symlinks/plugins/flutter_memory_info/ios`)
+  - flutter_qjs (from `.symlinks/plugins/flutter_qjs/ios`)
+  - lodepng_flutter (from `.symlinks/plugins/lodepng_flutter/ios`)
+  - rhttp (from `.symlinks/plugins/rhttp/ios`)
+  - zip_flutter (from `.symlinks/plugins/zip_flutter/ios`)
+
+SPEC REPOS:
+  trunk:
+    - OrderedSet
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  flutter_7zip:
+    :path: ".symlinks/plugins/flutter_7zip/ios"
+  flutter_file_dialog:
+    :path: ".symlinks/plugins/flutter_file_dialog/ios"
+  flutter_inappwebview_ios:
+    :path: ".symlinks/plugins/flutter_inappwebview_ios/ios"
+  flutter_memory_info:
+    :path: ".symlinks/plugins/flutter_memory_info/ios"
+  flutter_qjs:
+    :path: ".symlinks/plugins/flutter_qjs/ios"
+  lodepng_flutter:
+    :path: ".symlinks/plugins/lodepng_flutter/ios"
+  rhttp:
+    :path: ".symlinks/plugins/rhttp/ios"
+  zip_flutter:
+    :path: ".symlinks/plugins/zip_flutter/ios"
+
+SPEC CHECKSUMS:
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_7zip: e34b46b824f4f7dc3501ecd11a962a1e3f37fbe5
+  flutter_file_dialog: ca8d7fbd1772d4f0c2777b4ab20a7787ef4e7dd8
+  flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
+  flutter_memory_info: ba0a8aa54cfbae8972fd65b014737e063cd75217
+  flutter_qjs: 25bb018feca5a6c80396f1ab1a27f7724892e89e
+  lodepng_flutter: 89b9ed92ebfc450d86387d76068e9a20ab6fc3a7
+  OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
+  rhttp: 359daed992674fc912552df3106bfbc746bcc929
+  zip_flutter: 452447e26d7e66c88fc582ad7ad86fcee39c7b53
+
+PODFILE CHECKSUM: de2292b74cd87804bf451b135fd3247e10b34d9b
+
+COCOAPODS: 1.17.0

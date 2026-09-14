@@ -1,0 +1,77 @@
+PODS:
+  - desktop_webview_window (0.0.1):
+    - FlutterMacOS
+  - flutter_7zip (0.0.1):
+    - FlutterMacOS
+  - flutter_inappwebview_macos (0.0.1):
+    - FlutterMacOS
+    - OrderedSet (~> 6.0.3)
+  - flutter_memory_info (0.0.1):
+    - FlutterMacOS
+  - flutter_qjs (0.0.1):
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+  - lodepng_flutter (0.0.1):
+    - FlutterMacOS
+  - OrderedSet (6.0.3)
+  - rhttp (0.0.1):
+    - FlutterMacOS
+  - screen_retriever_macos (0.0.1):
+    - FlutterMacOS
+  - zip_flutter (0.0.1):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - desktop_webview_window (from `Flutter/ephemeral/.symlinks/plugins/desktop_webview_window/macos`)
+  - flutter_7zip (from `Flutter/ephemeral/.symlinks/plugins/flutter_7zip/macos`)
+  - flutter_inappwebview_macos (from `Flutter/ephemeral/.symlinks/plugins/flutter_inappwebview_macos/macos`)
+  - flutter_memory_info (from `Flutter/ephemeral/.symlinks/plugins/flutter_memory_info/macos`)
+  - flutter_qjs (from `Flutter/ephemeral/.symlinks/plugins/flutter_qjs/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - lodepng_flutter (from `Flutter/ephemeral/.symlinks/plugins/lodepng_flutter/macos`)
+  - rhttp (from `Flutter/ephemeral/.symlinks/plugins/rhttp/macos`)
+  - screen_retriever_macos (from `Flutter/ephemeral/.symlinks/plugins/screen_retriever_macos/macos`)
+  - zip_flutter (from `Flutter/ephemeral/.symlinks/plugins/zip_flutter/macos`)
+
+SPEC REPOS:
+  trunk:
+    - OrderedSet
+
+EXTERNAL SOURCES:
+  desktop_webview_window:
+    :path: Flutter/ephemeral/.symlinks/plugins/desktop_webview_window/macos
+  flutter_7zip:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_7zip/macos
+  flutter_inappwebview_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_inappwebview_macos/macos
+  flutter_memory_info:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_memory_info/macos
+  flutter_qjs:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_qjs/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  lodepng_flutter:
+    :path: Flutter/ephemeral/.symlinks/plugins/lodepng_flutter/macos
+  rhttp:
+    :path: Flutter/ephemeral/.symlinks/plugins/rhttp/macos
+  screen_retriever_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/screen_retriever_macos/macos
+  zip_flutter:
+    :path: Flutter/ephemeral/.symlinks/plugins/zip_flutter/macos
+
+SPEC CHECKSUMS:
+  desktop_webview_window: 2f0cdefecc06e21208a51589bd3d1580a87a703c
+  flutter_7zip: 9779d5e44d0b6092a94acf5981e876bf41b91d0b
+  flutter_inappwebview_macos: c2d68649f9f8f1831bfcd98d73fd6256366d9d1d
+  flutter_memory_info: 762bdc2523ca862aa2f2a846a0ddcc03484439a8
+  flutter_qjs: b61d3c2f46349267e484a87f67fb821f6f7a75db
+  FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
+  lodepng_flutter: db7bc80ff4dd22e03eca4dde71ba03743a056728
+  OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
+  rhttp: 08d791d6373089de796318f4cfb172cbcf34e78b
+  screen_retriever_macos: 452e51764a9e1cdb74b3c541238795849f21557f
+  zip_flutter: 84647ba324a4827db98058f749394752867ac052
+
+PODFILE CHECKSUM: f0c21717cb7ee9112f915044c74bfceb5b12e02a
+
+COCOAPODS: 1.17.0
