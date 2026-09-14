@@ -9,7 +9,7 @@ Venera Netmatic 是基于开源漫画阅读器 [Venera](https://github.com/vener
 
 本项目不是 Venera 官方版本，与原项目维护者不存在隶属、认可或支持关系。遇到本修改版的问题，请在本仓库反馈，不要向原项目维护者寻求支持。
 
-本修改版目前保留了上游仓库随源码提供的应用图标。该图标随本项目继续在 GPL-3.0 条款下分发；本项目不主张对 “Venera” 名称或原图标拥有任何商标权，也不以它们暗示官方身份。公开发行时，建议继续使用 **Venera Netmatic** 完整名称并保留本声明。
+本修改版目前保留了上游仓库随源码提供的应用图标。该图标随本项目继续在 GPL-3.0 条款下分发；本项目不主张对 “Venera” 名称或原图标拥有任何商标权，也不以它们暗示官方身份。
 
 ## 项目来源与修改声明
 
@@ -60,8 +60,6 @@ flutter build apk
 - Android、iOS、macOS 与 Linux 应用标识为 `com.piaomobai.veneranetmatic`；Dart/Linux 包名为 `venera_netmatic`，面向用户的名称仍为 **Venera Netmatic**。
 - Android Debug 使用独立的 `com.piaomobai.veneranetmatic.debug`，可与使用发布密钥签名的 Release 版本同时安装。
 - 本项目与上游 Venera 使用不同的应用标识和 Windows 安装器 GUID，因此可以并存，也不会删除或覆盖上游安装。
-- 从仍使用上游标识的早期 Venera Netmatic 构建迁移时，系统会把新版视为另一个应用；沙盒内的设置、数据库和下载目录不会自动转移。请先使用应用内备份或 NAS 同步保存所需数据，再安装新版并重新配置连接。
-- Android 后续更新必须继续使用同一套发布签名密钥；GitHub Actions 中的签名 Secrets 只负责签名，不代表版权或应用所有权。
 
 ## 漫画源与文档
 
@@ -82,7 +80,7 @@ flutter build apk
 
 ## 许可证与版权
 
-上游 Venera 及本修改版本均依据 **GNU General Public License v3.0（GPL-3.0）** 分发，完整条款见 [LICENSE](LICENSE)。本仓库保留原项目的许可证及已有版权声明。
+上游 Venera 及本修改版本均依据 **GNU General Public License v3.0（GPL-3.0）** 分发，完整条款见 [LICENSE](LICENSE)。
 
 - 原始代码的版权归 Venera 原作者及其贡献者所有；
 - 后续修改的版权归相应修改者和贡献者所有；
