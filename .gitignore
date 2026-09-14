@@ -40,6 +40,20 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.cer
+*.crt
+**/key.properties
+**/local.properties
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

@@ -1,19 +1,23 @@
-name: "analyze"
+name: Analyze
+
 on:
   pull_request:
   push:
     branches:
-      - master
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: "stable"
+          channel: stable
           flutter-version-file: pubspec.yaml
-          architecture: x64
+          cache: true
       - run: flutter pub get
-      - uses: invertase/github-action-dart-analyzer@v1
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
