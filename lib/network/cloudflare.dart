@@ -2,12 +2,12 @@ import 'dart:io' as io;
 
 import 'package:dio/dio.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/consts.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/pages/webview.dart';
-import 'package:venera/utils/ext.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/consts.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/pages/webview.dart';
+import 'package:venera_netmatic/utils/ext.dart';
 
 import 'cookie_jar.dart';
 

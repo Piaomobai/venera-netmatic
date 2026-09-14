@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:flutter_7zip/flutter_7zip.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/utils/ext.dart';
-import 'package:venera/utils/file_type.dart';
-import 'package:venera/utils/io.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/utils/ext.dart';
+import 'package:venera_netmatic/utils/file_type.dart';
+import 'package:venera_netmatic/utils/io.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
 class ComicMetaData {

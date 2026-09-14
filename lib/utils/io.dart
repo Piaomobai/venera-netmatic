@@ -4,12 +4,12 @@ import 'dart:isolate';
 import 'package:flutter/services.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:flutter_saf/flutter_saf.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/utils/ext.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/utils/ext.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart' as s;
 import 'package:file_selector/file_selector.dart' as file_selector;
-import 'package:venera/utils/file_type.dart';
+import 'package:venera_netmatic/utils/file_type.dart';
 
 export 'dart:io';
 export 'dart:typed_data';
@@ -38,7 +38,8 @@ class FilePath {
   /// (`\\server\share`), and treats `a/b` as relative. Callers previously used
   /// "contains a separator" to mean absolute, which misreads a nested relative
   /// path such as `Source/Author/Title` as absolute.
-  static bool isAbsolute(String path) => p.isAbsolute(path);
+  static bool isAbsolute(String path) =>
+      p.posix.isAbsolute(path) || p.windows.isAbsolute(path);
 
   /// [path] expressed relative to [parent], or [path] unchanged when it is not
   /// inside [parent].

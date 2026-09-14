@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/nas/nas_manager.dart';
-import 'package:venera/foundation/scheduler/cron.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/foundation/scheduler/schedule.dart';
-import 'package:venera/foundation/scheduler/store.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/incremental_download.dart';
-import 'package:venera/foundation/scheduler/tasks/nas_sync.dart';
-import 'package:venera/foundation/scheduler/tasks/ranking_monitor.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/favorites.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/foundation/scheduler/cron.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/foundation/scheduler/schedule.dart';
+import 'package:venera_netmatic/foundation/scheduler/store.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/incremental_download.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/nas_sync.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 /// Creates or edits one scheduled task.
 ///

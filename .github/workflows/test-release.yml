@@ -45,7 +45,7 @@ jobs:
           df -h
       - name: Install Android NDK
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
       - run: flutter pub get
       - run: flutter build apk --release
       - name: Sign release APKs
@@ -60,14 +60,14 @@ jobs:
           : "${ANDROID_KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD secret is required}"
           : "${ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS secret is required}"
           : "${ANDROID_KEY_PASSWORD:?ANDROID_KEY_PASSWORD secret is required}"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/venera-release.jks
-          chmod 600 android/venera-release.jks
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/venera-netmatic-release.jks
+          chmod 600 android/venera-netmatic-release.jks
           apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$apksigner_path"
           for apk in build/app/outputs/flutter-apk/*.apk; do
             signed_apk="${apk%.apk}-signed.apk"
             "$apksigner_path" sign \
-              --ks android/venera-release.jks \
+              --ks android/venera-netmatic-release.jks \
               --ks-key-alias "$ANDROID_KEY_ALIAS" \
               --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
               --key-pass env:ANDROID_KEY_PASSWORD \
@@ -75,11 +75,15 @@ jobs:
             mv "$signed_apk" "$apk"
             "$apksigner_path" verify --verbose "$apk"
           done
-          rm -f android/venera-release.jks
+          rm -f android/venera-netmatic-release.jks
       - name: Collect APKs
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/*.apk dist/
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            artifact_name="$(basename "$apk")"
+            artifact_name="${artifact_name#app-}"
+            cp "$apk" "dist/${RELEASE_BASENAME}-${artifact_name}"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: android

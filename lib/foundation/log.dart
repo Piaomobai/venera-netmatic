@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/utils/ext.dart';
-import 'package:venera/utils/io.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/utils/ext.dart';
+import 'package:venera_netmatic/utils/io.dart';
 
 class LogItem {
   final LogLevel level;

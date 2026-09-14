@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/utils/data.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/utils/data.dart';
 
 import 'nas_connection.dart';
 import 'nas_remote_client.dart';

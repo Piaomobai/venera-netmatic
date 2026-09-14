@@ -1,17 +1,17 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/history.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/nas/nas_connection.dart';
-import 'package:venera/foundation/nas/nas_library.dart';
-import 'package:venera/foundation/nas/nas_manager.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/pages/reader/reader.dart';
-import 'package:venera/pages/nas_sync_progress.dart';
-import 'package:venera/pages/settings/settings_page.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/history.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/nas/nas_connection.dart';
+import 'package:venera_netmatic/foundation/nas/nas_library.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/pages/reader/reader.dart';
+import 'package:venera_netmatic/pages/nas_sync_progress.dart';
+import 'package:venera_netmatic/pages/settings/settings_page.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 /// A browser for comics previously synchronized to a NAS, with optional local
 /// import for offline reading.

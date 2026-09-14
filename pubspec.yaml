@@ -1,4 +1,4 @@
-name: venera
+name: venera_netmatic
 description: "A comic app."
 publish_to: 'none'
 
@@ -110,7 +110,7 @@ flutter:
 
 flutter_to_arch:
   name: Venera Netmatic
-  icon: debian/gui/venera.png
+  icon: debian/gui/venera_netmatic.png
   categories: Utility
   keywords: Flutter;comic;images;
   url: https://github.com/Piaomobai/venera-netmatic

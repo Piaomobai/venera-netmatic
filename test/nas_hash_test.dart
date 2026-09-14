@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
 
 void main() {
   test('NAS file fingerprint uses SHA-256 file contents', () async {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/nas/nas_connection.dart';
+import 'package:venera_netmatic/foundation/nas/nas_connection.dart';
 
 void main() {
   group('NAS connection model', () {

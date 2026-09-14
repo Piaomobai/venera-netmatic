@@ -94,7 +94,7 @@ BEGIN
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "venera-netmatic" "\0"
             VALUE "LegalCopyright", "Original work (C) Venera contributors; modifications (C) 2026 Venera Netmatic contributors. GPL-3.0." "\0"
-            VALUE "OriginalFilename", "venera.exe" "\0"
+            VALUE "OriginalFilename", "venera-netmatic.exe" "\0"
             VALUE "ProductName", "Venera Netmatic" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

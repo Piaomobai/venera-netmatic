@@ -1,4 +1,4 @@
-import 'package:venera/utils/ext.dart';
+import 'package:venera_netmatic/utils/ext.dart';
 
 enum ImageFavoriteSortType {
   title("Title"),

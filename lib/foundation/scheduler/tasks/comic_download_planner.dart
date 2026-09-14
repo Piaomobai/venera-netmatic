@@ -1,8 +1,8 @@
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/network/download.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/network/download.dart';
 
 /// What still has to be fetched, independent of any particular comic.
 ///

@@ -8,7 +8,7 @@
 PRODUCT_NAME = Venera Netmatic
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.github.wgh136.venera
+PRODUCT_BUNDLE_IDENTIFIER = com.piaomobai.veneranetmatic
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Original work © Venera contributors; modifications © 2026 Venera Netmatic contributors. GPL-3.0.

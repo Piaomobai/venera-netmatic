@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/pages/scheduler/scheduler_page.dart';
-import 'package:venera/pages/storage_manager_page.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/pages/scheduler/scheduler_page.dart';
+import 'package:venera_netmatic/pages/storage_manager_page.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 /// Home-page entry point for the scheduled-task queue.
 ///

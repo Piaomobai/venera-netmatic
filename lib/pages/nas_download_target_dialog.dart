@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:venera/foundation/context.dart';
-import 'package:venera/foundation/nas/nas_manager.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/foundation/context.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 class DownloadDestination {
   const DownloadDestination.local() : nasConnectionId = null;

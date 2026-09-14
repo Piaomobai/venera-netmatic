@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/builtin.dart';
-import 'package:venera/foundation/scheduler/tasks/incremental_download.dart';
-import 'package:venera/foundation/scheduler/tasks/nas_sync.dart';
-import 'package:venera/foundation/scheduler/tasks/ranking_monitor.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/builtin.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/incremental_download.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/nas_sync.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
 
 // Pure-logic tests for the task runners. Deliberately avoids anything that
 // needs the network, sqlite3, a Flutter binding, or an initialised

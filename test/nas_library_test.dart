@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/nas/nas_library.dart';
-import 'package:venera/pages/nas_library_page.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/foundation/nas/nas_library.dart';
+import 'package:venera_netmatic/pages/nas_library_page.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 void main() {
   setUpAll(() {

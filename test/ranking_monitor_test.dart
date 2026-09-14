@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/res.dart';
-import 'package:venera/foundation/scheduler/tasks/ranking_monitor.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/res.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
 
 // ============================================================================
 // Tests for ranking-list paging.

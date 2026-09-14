@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/cache_manager.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/nas/nas_manager.dart';
-import 'package:venera/pages/local_comics_page.dart' show openComicFolder;
-import 'package:venera/pages/nas_sync_progress.dart';
-import 'package:venera/utils/io.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/cache_manager.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/pages/local_comics_page.dart' show openComicFolder;
+import 'package:venera_netmatic/pages/nas_sync_progress.dart';
+import 'package:venera_netmatic/utils/io.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 /// Local library file management.
 ///

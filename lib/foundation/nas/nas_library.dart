@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/history.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/utils/io.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/history.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/utils/io.dart';
 
 import 'nas_connection.dart';
 import 'nas_manager.dart';

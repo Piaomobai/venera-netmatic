@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/io.dart';
-import 'package:venera/network/app_dio.dart';
-import 'package:venera/network/proxy.dart';
-import 'package:venera/utils/ext.dart';
+import 'package:venera_netmatic/network/app_dio.dart';
+import 'package:venera_netmatic/network/proxy.dart';
+import 'package:venera_netmatic/utils/ext.dart';
 
 class FileDownloader {
   final String url;

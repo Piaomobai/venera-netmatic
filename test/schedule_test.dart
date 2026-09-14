@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/scheduler/schedule.dart';
-import 'package:venera/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/schedule.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 
 void main() {
   group('ScheduleSpec interval', () {

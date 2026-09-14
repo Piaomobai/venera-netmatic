@@ -2,23 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/foundation/scheduler/schedule.dart';
-import 'package:venera/foundation/scheduler/store.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/builtin.dart';
-import 'package:venera/foundation/scheduler/tasks/ranking_monitor.dart';
-import 'package:venera/pages/local_comics_page.dart';
-import 'package:venera/pages/scheduler/scheduler_home_card.dart';
-import 'package:venera/pages/scheduler/scheduler_page.dart';
-import 'package:venera/pages/scheduler/task_editor_page.dart';
-import 'package:venera/pages/storage_manager_page.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/foundation/scheduler/schedule.dart';
+import 'package:venera_netmatic/foundation/scheduler/store.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/builtin.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
+import 'package:venera_netmatic/pages/local_comics_page.dart';
+import 'package:venera_netmatic/pages/scheduler/scheduler_home_card.dart';
+import 'package:venera_netmatic/pages/scheduler/scheduler_page.dart';
+import 'package:venera_netmatic/pages/scheduler/task_editor_page.dart';
+import 'package:venera_netmatic/pages/storage_manager_page.dart';
 // Re-exports dart:io and dart:typed_data, and supplies Directory.joinFile.
-import 'package:venera/utils/io.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/utils/io.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 // ============================================================================
 // Widget tests for the scheduler and storage UI.

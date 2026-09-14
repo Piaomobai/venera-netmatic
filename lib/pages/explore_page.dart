@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/global_state.dart';
-import 'package:venera/foundation/res.dart';
-import 'package:venera/pages/comic_source_page.dart';
-import 'package:venera/pages/settings/settings_page.dart';
-import 'package:venera/utils/ext.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/global_state.dart';
+import 'package:venera_netmatic/foundation/res.dart';
+import 'package:venera_netmatic/pages/comic_source_page.dart';
+import 'package:venera_netmatic/pages/settings/settings_page.dart';
+import 'package:venera_netmatic/utils/ext.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 class ExplorePage extends StatefulWidget {
   const ExplorePage({super.key});

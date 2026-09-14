@@ -3,15 +3,15 @@
 
 #define MyAppName "Venera Netmatic"
 #define MyAppVersion "{{version}}"
-#define MyAppPublisher "nyne"
+#define MyAppPublisher "Venera Netmatic contributors"
 #define MyAppURL "https://github.com/Piaomobai/venera-netmatic"
-#define MyAppExeName "venera.exe"
+#define MyAppExeName "venera-netmatic.exe"
 #define RootPath "{{root_path}}"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{1A39CB64-0A5B-478E-9590-978614C804A8}
+AppId={{5BBF31E1-C86D-470A-81FA-4B5A72E80D09}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}

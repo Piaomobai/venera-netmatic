@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/incremental_download.dart';
-import 'package:venera/foundation/scheduler/tasks/nas_sync.dart';
-import 'package:venera/foundation/scheduler/tasks/ranking_monitor.dart';
-import 'package:venera/pages/scheduler/task_editor_page.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/incremental_download.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/nas_sync.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
+import 'package:venera_netmatic/pages/scheduler/task_editor_page.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 /// The visual scheduled-task queue.
 ///

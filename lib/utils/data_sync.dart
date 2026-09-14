@@ -1,17 +1,17 @@
 import 'package:flutter/foundation.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/components/window_frame.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/res.dart';
-import 'package:venera/network/app_dio.dart';
-import 'package:venera/utils/data.dart';
-import 'package:venera/utils/ext.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/components/window_frame.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/favorites.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/res.dart';
+import 'package:venera_netmatic/network/app_dio.dart';
+import 'package:venera_netmatic/utils/data.dart';
+import 'package:venera_netmatic/utils/ext.dart';
 import 'package:webdav_client/webdav_client.dart' hide File;
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 import 'io.dart';
 

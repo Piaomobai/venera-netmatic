@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/pages/aggregated_search_page.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/pages/aggregated_search_page.dart';
 
 bool _isHandling = false;
 

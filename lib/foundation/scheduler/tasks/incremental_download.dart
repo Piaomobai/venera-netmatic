@@ -1,10 +1,10 @@
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/comic_download_planner.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/favorites.dart';
+import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/comic_download_planner.dart';
 
 /// Fetches only the chapters that appeared since the last check, for a set of
 /// already-known comics.

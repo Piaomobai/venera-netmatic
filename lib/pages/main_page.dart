@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/pages/categories_page.dart';
-import 'package:venera/pages/nas_library_page.dart';
-import 'package:venera/pages/scheduler/scheduler_page.dart';
-import 'package:venera/pages/search_page.dart';
-import 'package:venera/pages/settings/settings_page.dart';
-import 'package:venera/pages/storage_manager_page.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/pages/categories_page.dart';
+import 'package:venera_netmatic/pages/nas_library_page.dart';
+import 'package:venera_netmatic/pages/scheduler/scheduler_page.dart';
+import 'package:venera_netmatic/pages/search_page.dart';
+import 'package:venera_netmatic/pages/settings/settings_page.dart';
+import 'package:venera_netmatic/pages/storage_manager_page.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 import '../components/components.dart';
 import '../foundation/app.dart';

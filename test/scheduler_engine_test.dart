@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/foundation/scheduler/schedule.dart';
-import 'package:venera/foundation/scheduler/store.dart';
-import 'package:venera/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/foundation/scheduler/schedule.dart';
+import 'package:venera_netmatic/foundation/scheduler/store.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 
 // ============================================================================
 // Store and engine tests.

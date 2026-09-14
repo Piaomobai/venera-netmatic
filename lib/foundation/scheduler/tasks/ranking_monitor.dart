@@ -1,10 +1,10 @@
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/comic_type.dart';
-import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/scheduler/store.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/comic_download_planner.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/favorites.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/scheduler/store.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/comic_download_planner.dart';
 
 /// Scans comic sources' ranking lists and reports comics that were not listed
 /// before.

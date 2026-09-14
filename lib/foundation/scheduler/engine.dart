@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/foundation/scheduler/schedule.dart';
-import 'package:venera/foundation/scheduler/store.dart';
-import 'package:venera/foundation/scheduler/task.dart';
-import 'package:venera/foundation/scheduler/tasks/builtin.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/scheduler/schedule.dart';
+import 'package:venera_netmatic/foundation/scheduler/store.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/builtin.dart';
 
 /// The scheduler: decides which task is due, runs it, and records the outcome.
 ///

@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:isolate';
 import 'package:flutter/services.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
-import 'package:venera/foundation/js_engine.dart';
-import 'package:venera/foundation/log.dart';
+import 'package:venera_netmatic/foundation/js_engine.dart';
+import 'package:venera_netmatic/foundation/log.dart';
 
 class JSPool {
   static final int _maxInstances = 4;

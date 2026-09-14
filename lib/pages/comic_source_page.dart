@@ -3,17 +3,17 @@ import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:venera/components/components.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/network/app_dio.dart';
-import 'package:venera/network/cookie_jar.dart';
-import 'package:venera/pages/webview.dart';
-import 'package:venera/utils/ext.dart';
-import 'package:venera/utils/io.dart';
-import 'package:venera/utils/translations.dart';
+import 'package:venera_netmatic/components/components.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/network/app_dio.dart';
+import 'package:venera_netmatic/network/cookie_jar.dart';
+import 'package:venera_netmatic/pages/webview.dart';
+import 'package:venera_netmatic/utils/ext.dart';
+import 'package:venera_netmatic/utils/io.dart';
+import 'package:venera_netmatic/utils/translations.dart';
 
 class ComicSourcePage extends StatelessWidget {
   const ComicSourcePage({super.key});

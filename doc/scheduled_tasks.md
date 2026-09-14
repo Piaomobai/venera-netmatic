@@ -108,13 +108,13 @@ Flutter 3.47.3 (stable) · Dart 3.13.3 · Rust 1.85.1 (pinned by rust-toolchain.
 flutter pub get        OK
 flutter analyze        13 issues, 0 of them in scheduler/storage/headless code
 flutter test           193 tests, all passing, 0 skipped
-flutter build windows --release  OK -> build\windows\x64\runner\Release\venera.exe
+flutter build windows --release  OK -> build\windows\x64\runner\Release\venera-netmatic.exe
 ```
 
 Packaged as `Venera-win64.zip` (19.68 MB, 49 files), SHA256
 `6FED2554BAA7F0D4D6B83F6629940FBA467919CD8E5E2C89E91C6A1B3B99799F`. The archive's
 `data/app.so` was diffed against the freshly built one to confirm the zip is not
-stale — Dart AOT code lives there, not in `venera.exe`.
+stale — Dart AOT code lives there, not in `venera-netmatic.exe`.
 
 ### Windows build prerequisites
 
@@ -161,10 +161,10 @@ created afterwards. It is scoped to the Windows build and touches no Dart code.
 `tool/e2e_scheduler.py` drives the real executable, not a test harness:
 
 ```
-venera.exe --headless scheduler list     -> {"total":0,...,"tasks":[]}
+venera-netmatic.exe --headless scheduler list     -> {"total":0,...,"tasks":[]}
 # insert one due task into the app's own scheduler.db, then:
-venera.exe --headless scheduler list     -> {"total":1,"enabled":1,...}
-venera.exe --headless scheduler rundue   -> lastState "skipped", lastRunAt set,
+venera-netmatic.exe --headless scheduler list     -> {"total":1,"enabled":1,...}
+venera-netmatic.exe --headless scheduler rundue   -> lastState "skipped", lastRunAt set,
                                             nextRunAt advanced by exactly the
                                             interval, minute-truncated
 # task_runs row: state=skipped, duration=0.021s,
@@ -893,7 +893,7 @@ device-local scheduler state prefer the scheduler's own SQLite file, or
 - `Directory.joinFile(name)` exists; `File.joinFile` does not.
 - `detectFileType(List<int>)` returns a `FileType` whose `.ext` **includes** the
   leading dot, and is `"."` when the MIME is unknown.
-- `import 'package:venera/utils/io.dart'` re-exports `dart:io` and
+- `import 'package:venera_netmatic/utils/io.dart'` re-exports `dart:io` and
   `dart:typed_data`, so `File`/`Directory` are plain `dart:io` types.
   `AndroidDirectory`, `AndroidFile` and `SAFTTaskWorker` come from
   `package:flutter_saf` and must not be used on Windows.

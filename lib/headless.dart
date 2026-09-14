@@ -1,17 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/widgets.dart';
-import 'package:venera/utils/data_sync.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/pages/comic_source_page.dart';
-import 'package:venera/init.dart';
-import 'package:venera/foundation/follow_updates.dart';
-import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/appdata.dart';
-import 'package:venera/foundation/favorites.dart';
-import 'package:venera/foundation/scheduler/engine.dart';
-import 'package:venera/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/utils/data_sync.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/pages/comic_source_page.dart';
+import 'package:venera_netmatic/init.dart';
+import 'package:venera_netmatic/foundation/follow_updates.dart';
+import 'package:venera_netmatic/foundation/app.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/favorites.dart';
+import 'package:venera_netmatic/foundation/scheduler/engine.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 
 void cliPrint(Map<String, dynamic> data) {
   print('[CLI PRINT] ${jsonEncode(data)}');

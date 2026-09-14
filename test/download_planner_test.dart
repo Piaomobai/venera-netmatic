@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:venera/foundation/scheduler/tasks/comic_download_planner.dart';
+import 'package:venera_netmatic/foundation/scheduler/tasks/comic_download_planner.dart';
 
 // ============================================================================
 // Tests for the incremental download delta.

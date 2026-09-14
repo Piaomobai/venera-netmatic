@@ -55,6 +55,14 @@ flutter build apk
 
 其他平台可使用对应的 Flutter 构建命令，例如 `flutter build macos`、`flutter build ios` 或 `flutter build windows`。
 
+### 应用标识与升级说明
+
+- Android、iOS、macOS 与 Linux 应用标识为 `com.piaomobai.veneranetmatic`；Dart/Linux 包名为 `venera_netmatic`，面向用户的名称仍为 **Venera Netmatic**。
+- Android Debug 使用独立的 `com.piaomobai.veneranetmatic.debug`，可与使用发布密钥签名的 Release 版本同时安装。
+- 本项目与上游 Venera 使用不同的应用标识和 Windows 安装器 GUID，因此可以并存，也不会删除或覆盖上游安装。
+- 从仍使用上游标识的早期 Venera Netmatic 构建迁移时，系统会把新版视为另一个应用；沙盒内的设置、数据库和下载目录不会自动转移。请先使用应用内备份或 NAS 同步保存所需数据，再安装新版并重新配置连接。
+- Android 后续更新必须继续使用同一套发布签名密钥；GitHub Actions 中的签名 Secrets 只负责签名，不代表版权或应用所有权。
+
 ## 漫画源与文档
 
 本仓库中的漫画源开发、漫画导入、Headless 模式等既有文档，主要继承自原项目 Venera 及相关社区衍生版本，并在本项目的功能演进中继续补充和修改。原始思想、接口设计与早期文档工作的功劳属于相应的原作者和贡献者；具体变更可参考本仓库文件内容与 Git 历史。

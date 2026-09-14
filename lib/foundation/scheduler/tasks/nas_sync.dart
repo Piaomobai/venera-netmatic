@@ -1,5 +1,5 @@
-import 'package:venera/foundation/nas/nas_manager.dart';
-import 'package:venera/foundation/scheduler/task.dart';
+import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 
 /// Periodically mirrors the complete local comic library to one configured NAS.
 ///

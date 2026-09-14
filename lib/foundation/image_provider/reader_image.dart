@@ -2,12 +2,12 @@ import 'dart:async' show Future;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_qjs/flutter_qjs.dart';
-import 'package:venera/foundation/js_engine.dart';
-import 'package:venera/network/images.dart';
-import 'package:venera/utils/io.dart';
+import 'package:venera_netmatic/foundation/js_engine.dart';
+import 'package:venera_netmatic/network/images.dart';
+import 'package:venera_netmatic/utils/io.dart';
 import 'base_image_provider.dart';
 import 'reader_image.dart' as image_provider;
-import 'package:venera/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/appdata.dart';
 
 class ReaderImageProvider
     extends BaseImageProvider<image_provider.ReaderImageProvider> {
