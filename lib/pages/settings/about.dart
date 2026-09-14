@@ -98,7 +98,7 @@ Future<bool> checkUpdate() async {
   if (res.statusCode == 200) {
     var data = loadYaml(res.data);
     if (data["version"] != null) {
-      return _compareVersion(data["version"].split("+")[0], App.version);
+      return _compareVersion(data["version"].toString(), App.version);
     }
   }
   return false;
@@ -142,15 +142,54 @@ Future<void> checkUpdateUi([bool showMessageIfNoUpdate = true, bool delay = fals
 
 /// return true if version1 > version2
 bool _compareVersion(String version1, String version2) {
-  var v1 = version1.split(".");
-  var v2 = version2.split(".");
-  for (var i = 0; i < v1.length; i++) {
-    if (int.parse(v1[i]) > int.parse(v2[i])) {
+  List<int> core(String version) {
+    final parts = version.split("+").first.split("-").first.split(".");
+    return List.generate(
+      3,
+      (index) => index < parts.length ? int.tryParse(parts[index]) ?? 0 : 0,
+    );
+  }
+
+  List<String> preRelease(String version) {
+    final value = version.split("+").first;
+    final separator = value.indexOf("-");
+    return separator == -1
+        ? const []
+        : value.substring(separator + 1).split(".");
+  }
+
+  final v1 = core(version1);
+  final v2 = core(version2);
+  for (var i = 0; i < 3; i++) {
+    if (v1[i] > v2[i]) {
       return true;
     }
-    if (int.parse(v1[i]) < int.parse(v2[i])) {
+    if (v1[i] < v2[i]) {
       return false;
     }
   }
-  return false;
+
+  final pre1 = preRelease(version1);
+  final pre2 = preRelease(version2);
+  if (pre1.isEmpty || pre2.isEmpty) {
+    return pre1.isEmpty && pre2.isNotEmpty;
+  }
+  for (var i = 0; i < pre1.length && i < pre2.length; i++) {
+    if (pre1[i] == pre2[i]) {
+      continue;
+    }
+    final part1 = int.tryParse(pre1[i]);
+    final part2 = int.tryParse(pre2[i]);
+    if (part1 != null && part2 != null) {
+      return part1 > part2;
+    }
+    if (part1 != null) {
+      return false;
+    }
+    if (part2 != null) {
+      return true;
+    }
+    return pre1[i].compareTo(pre2[i]) > 0;
+  }
+  return pre1.length > pre2.length;
 }
