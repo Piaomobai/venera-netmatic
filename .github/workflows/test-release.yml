@@ -18,7 +18,7 @@ env:
 
 jobs:
   android:
-    name: Android signed release APKs
+    name: Android release APKs
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -48,7 +48,23 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
       - run: flutter pub get
       - run: flutter build apk --release
+      - name: Check Android signing secrets
+        id: android_signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android signing secrets are not configured; publishing unsigned APKs."
+          fi
       - name: Sign release APKs
+        if: steps.android_signing.outputs.enabled == 'true'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -199,7 +215,7 @@ jobs:
           retention-days: 7
 
   release:
-    name: Publish test pre-release
+    name: Publish release
     needs: [android, ios, macos, windows, linux]
     runs-on: ubuntu-24.04
     permissions:
@@ -215,16 +231,27 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          title="Venera Netmatic multi-platform test ${TAG}"
-          notes="Signed Android APKs, an unsigned iOS IPA for local Xcode signing, an unsigned macOS ZIP (Gatekeeper may require Open Anyway), and portable Windows/Linux builds. These artifacts are for sideload and build verification; they are not store submissions."
+          title="Venera Netmatic ${TAG#v}"
+          notes="$(cat <<'EOF'
+          Venera Netmatic 2.0.0
+
+          - Android：ARM64、ARMv7、x86_64 和通用 APK
+          - iOS：unsigned IPA，需要使用 Xcode 签名后安装
+          - macOS：unsigned ZIP，首次启动可能需要在系统设置中允许
+          - Windows：x64 portable ZIP
+          - Linux：x64 portable tar.gz
+
+          仅供个人sideload使用
+          EOF
+          )"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "$title" --notes "$notes"
           else
             gh release create "$TAG" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --prerelease \
+              --latest \
               --title "$title" \
               --notes "$notes"
           fi
