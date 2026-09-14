@@ -33,6 +33,16 @@ jobs:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      - name: Free Android runner disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo rm -rf "$ANDROID_HOME/system-images" || true
+          sudo rm -rf "$ANDROID_HOME/ndk"/* || true
+          sudo rm -rf "$ANDROID_HOME/.temp" || true
+          sudo apt-get clean
+          echo "Disk usage after cleanup:"
+          df -h
       - name: Install Android NDK
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108"
