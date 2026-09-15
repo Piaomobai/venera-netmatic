@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:venera_netmatic/foundation/appdata.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/local.dart';
 import 'package:venera_netmatic/utils/data.dart';
 
@@ -71,6 +72,100 @@ class NasSyncResult {
   final int uploadedFiles;
   final int skippedFiles;
   final int totalBytes;
+}
+
+/// Merges comics synchronized by this device into the existing NAS index.
+///
+/// The NAS is shared by multiple devices, so a device's local library is only
+/// an update set. A comic missing locally must never be interpreted as a
+/// deletion from the NAS.
+@visibleForTesting
+Map<String, dynamic> mergeNasLibraryIndex(
+  Map<String, dynamic>? existingIndex,
+  Iterable<LocalComic> updatedComics,
+) {
+  if (existingIndex != null) {
+    final format = existingIndex['format'];
+    if (format != null && format != 1) {
+      throw FormatException('Unsupported NAS library index format: $format');
+    }
+    if (existingIndex['comics'] is! List) {
+      throw const FormatException('The NAS library index is invalid');
+    }
+  }
+
+  final comics = existingIndex == null
+      ? <dynamic>[]
+      : List<dynamic>.from(existingIndex['comics'] as List);
+  final indexesByIdentity = <String, int>{};
+  for (var index = 0; index < comics.length; index++) {
+    final item = comics[index];
+    if (item is Map) {
+      final identity = _nasComicIdentity(Map<String, dynamic>.from(item));
+      if (identity != null) indexesByIdentity[identity] = index;
+    }
+  }
+
+  for (final comic in updatedComics) {
+    final record = <String, dynamic>{
+      ...comic.toJson(),
+      'directory': comic.directory.replaceAll('\\', '/'),
+      'downloadedChapters': comic.downloadedChapters,
+      'createdAt': comic.createdAt.toUtc().toIso8601String(),
+    };
+    final identity = _nasComicIdentity(record);
+    final existingIndex = identity == null ? null : indexesByIdentity[identity];
+    if (existingIndex == null) {
+      if (identity != null) indexesByIdentity[identity] = comics.length;
+      comics.add(record);
+    } else {
+      comics[existingIndex] = record;
+    }
+  }
+
+  return {
+    ...?existingIndex,
+    'format': 1,
+    'generatedAt': DateTime.now().toUtc().toIso8601String(),
+    'comics': comics,
+  };
+}
+
+String? _nasComicIdentity(Map<String, dynamic> comic) {
+  final id = comic['id']?.toString().trim() ?? '';
+  final directory = (comic['directory']?.toString() ?? '')
+      .replaceAll('\\', '/')
+      .split('/')
+      .where((part) => part.isNotEmpty && part != '.')
+      .join('/');
+  var sourceKey = comic['sourceKey']?.toString().trim() ?? '';
+
+  if (id.isEmpty) return directory.isEmpty ? null : 'directory:$directory';
+  if (sourceKey.isEmpty || sourceKey == 'local') {
+    return directory.isEmpty ? null : 'directory:$directory';
+  }
+
+  if (sourceKey.startsWith('Unknown:')) {
+    final sourceDirectory = directory.isEmpty ? '' : directory.split('/').first;
+    for (final source in ComicSource.all()) {
+      if (source.key.toLowerCase() == sourceDirectory.toLowerCase() ||
+          source.name.toLowerCase() == sourceDirectory.toLowerCase()) {
+        sourceKey = source.key;
+        break;
+      }
+    }
+    if (sourceKey.startsWith('Unknown:')) {
+      if (sourceDirectory.isEmpty ||
+          sourceDirectory.toLowerCase().startsWith('source ')) {
+        return directory.isEmpty
+            ? 'source:$sourceKey|id:$id'
+            : 'directory:$directory';
+      }
+      sourceKey = sourceDirectory.toLowerCase();
+    }
+  }
+
+  return 'source:${sourceKey.toLowerCase()}|id:$id';
 }
 
 class NasManager with ChangeNotifier {
@@ -414,7 +509,11 @@ class NasManager with ChangeNotifier {
         uploadedBytes: uploadedBytes,
         startedAt: startedAt,
       );
-      await _uploadMetadata(client, connection);
+      await _uploadMetadata(
+        client,
+        connection,
+        syncedComics: comicsWithFiles.values,
+      );
       await markComicsSynced(connection.id, comicsWithFiles.values);
       return NasSyncResult(
         uploadedFiles: uploaded,
@@ -471,6 +570,9 @@ class NasManager with ChangeNotifier {
         followLinks: false,
       )) {
         if (entity is File) files.add(entity);
+      }
+      if (files.isEmpty) {
+        throw StateError('Downloaded comic directory contains no files');
       }
       final stats = <File, FileStat>{};
       var overallBytes = 0;
@@ -587,7 +689,7 @@ class NasManager with ChangeNotifier {
         uploadedBytes: uploadedBytes,
         startedAt: startedAt,
       );
-      await _uploadMetadata(client, connection, extraComic: comic);
+      await _uploadMetadata(client, connection, syncedComics: [comic]);
       await markComicSynced(connection.id, comic);
     } catch (e) {
       _lastError = e;
@@ -637,38 +739,24 @@ class NasManager with ChangeNotifier {
   Future<void> _uploadMetadata(
     NasRemoteClient client,
     NasConnection connection, {
-    LocalComic? extraComic,
+    required Iterable<LocalComic> syncedComics,
   }) async {
-    final comics = LocalManager().getComics(LocalSortType.timeDesc);
-    if (extraComic != null &&
-        !comics.any(
-          (item) =>
-              item.id == extraComic.id &&
-              item.comicType == extraComic.comicType,
-        )) {
-      comics.add(extraComic);
-    }
-    final index = {
-      'format': 1,
-      'generatedAt': DateTime.now().toUtc().toIso8601String(),
-      'comics': comics
-          .map(
-            (comic) => {
-              ...comic.toJson(),
-              'directory': comic.directory.replaceAll('\\', '/'),
-              'downloadedChapters': comic.downloadedChapters,
-              'createdAt': comic.createdAt.toUtc().toIso8601String(),
-            },
-          )
-          .toList(),
-    };
+    final updates = syncedComics.toList(growable: false);
     final metadataRoot = joinRemotePath([connection.remotePath, '_venera']);
-    await client.uploadBytes(
-      Uint8List.fromList(
-        utf8.encode(const JsonEncoder.withIndent('  ').convert(index)),
-      ),
-      joinRemotePath([metadataRoot, 'library-index.json']),
-    );
+    if (updates.isNotEmpty) {
+      final existingIndex = await _readRemoteLibraryIndex(
+        client,
+        connection,
+        metadataRoot,
+      );
+      final index = mergeNasLibraryIndex(existingIndex, updates);
+      await client.uploadBytes(
+        Uint8List.fromList(
+          utf8.encode(const JsonEncoder.withIndent('  ').convert(index)),
+        ),
+        joinRemotePath([metadataRoot, 'library-index.json']),
+      );
+    }
 
     await appdata.saveData(false);
     final backup = await exportAppData(true);
@@ -680,6 +768,42 @@ class NasManager with ChangeNotifier {
     } finally {
       if (await backup.exists()) await backup.delete();
     }
+  }
+
+  Future<Map<String, dynamic>?> _readRemoteLibraryIndex(
+    NasRemoteClient client,
+    NasConnection connection,
+    String metadataRoot,
+  ) async {
+    final indexPath = joinRemotePath([metadataRoot, 'library-index.json']);
+    final bytes = await client.readBytes(indexPath);
+    if (bytes != null) {
+      final decoded = jsonDecode(utf8.decode(bytes));
+      if (decoded is! Map) {
+        throw const FormatException('The NAS library index is invalid');
+      }
+      final index = Map<String, dynamic>.from(decoded);
+      if (index['comics'] is! List) {
+        throw const FormatException('The NAS library index is invalid');
+      }
+      return index;
+    }
+
+    // The remote client APIs return null both for a missing file and for some
+    // read failures. Check the directory before treating null as a new NAS.
+    // If the index is present but unreadable, abort rather than replace it.
+    await client.ensureDirectory(metadataRoot);
+    final entries = await client.listDirectory(metadataRoot);
+    final indexExists = entries.any((entry) {
+      final name = entry.name.replaceAll('\\', '/').split('/').last;
+      return !entry.isDirectory && name == 'library-index.json';
+    });
+    if (indexExists) {
+      throw StateError(
+        'The existing NAS library index could not be read; refusing to overwrite it',
+      );
+    }
+    return null;
   }
 
   void _setProgress({

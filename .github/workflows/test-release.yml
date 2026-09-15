@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Test release tag
+        description: Release tag
         required: true
-        default: v2.0.0
+        default: v2.0.1
 
 concurrency:
   group: test-release-${{ inputs.tag }}
@@ -233,7 +233,9 @@ jobs:
           set -euo pipefail
           title="Venera Netmatic ${TAG#v}"
           notes="$(cat <<'EOF'
-          Venera Netmatic 2.0.0
+          Venera Netmatic 2.0.1
+
+          - Fixed NAS library synchronization so a device with an empty or incomplete local library no longer removes comics from the shared NAS index.
 
           - Android：ARM64、ARMv7、x86_64 和通用 APK
           - iOS：unsigned IPA，需要使用 Xcode 签名后安装
