@@ -1,0 +1,23 @@
+#!/bin/sh
+
+set -eu
+
+zero_sha=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_ref" != "refs/heads/main" ] || [ "$remote_sha" = "$zero_sha" ]; then
+    continue
+  fi
+
+  local_version="$(git show "$local_sha:pubspec.yaml" 2>/dev/null | sed -n 's/^version: *\([^+]*\).*/\1/p')"
+  remote_version="$(git show "$remote_sha:pubspec.yaml" 2>/dev/null | sed -n 's/^version: *\([^+]*\).*/\1/p')"
+
+  if [ -n "$local_version" ] && [ "$local_version" = "$remote_version" ] && [ "$local_sha" != "$remote_sha" ]; then
+    printf '\nVenera Netmatic push stopped: app version is still %s.\n' "$local_version" >&2
+    printf 'Update the version in pubspec.yaml before pushing this main branch.\n' >&2
+    printf 'If this push intentionally does not require a version change, use git push --no-verify.\n\n' >&2
+    exit 1
+  fi
+done
+
+exit 0

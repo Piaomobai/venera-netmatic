@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag
         required: true
-        default: v2.0.1
+        default: v2.0.2
 
 concurrency:
   group: test-release-${{ inputs.tag }}
@@ -17,8 +17,27 @@ env:
   RELEASE_BASENAME: venera-netmatic-${{ inputs.tag }}
 
 jobs:
+  validate-version:
+    name: Validate release version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Match release tag to pubspec version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          app_version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
+          if [[ "v${app_version}" != "$TAG" ]]; then
+            echo "::error::Release tag $TAG does not match pubspec version v${app_version}."
+            exit 1
+          fi
+
   android:
     name: Android release APKs
+    needs: validate-version
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -109,6 +128,7 @@ jobs:
 
   ios:
     name: iOS unsigned IPA
+    needs: validate-version
     runs-on: macos-15
     permissions:
       contents: read
@@ -136,6 +156,7 @@ jobs:
 
   macos:
     name: macOS unsigned app
+    needs: validate-version
     runs-on: macos-15
     permissions:
       contents: read
@@ -161,6 +182,7 @@ jobs:
 
   windows:
     name: Windows x64 portable
+    needs: validate-version
     runs-on: windows-2025
     permissions:
       contents: read
@@ -187,6 +209,7 @@ jobs:
 
   linux:
     name: Linux x64 portable
+    needs: validate-version
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -232,10 +255,12 @@ jobs:
         run: |
           set -euo pipefail
           title="Venera Netmatic ${TAG#v}"
-          notes="$(cat <<'EOF'
-          Venera Netmatic 2.0.1
+          notes="$(cat <<EOF
+          Venera Netmatic ${TAG#v}
 
-          - Fixed NAS library synchronization so a device with an empty or incomplete local library no longer removes comics from the shared NAS index.
+          - 修复 Linux 窗口四周出现黑边的问题。
+          - 修复桌面端 Venera Netmatic 标题越过侧边栏分隔线的问题。
+          - 修复从 NAS 阅读漫画时阅读页仍保留桌面侧边栏的问题。
 
           - Android：ARM64、ARMv7、x86_64 和通用 APK
           - iOS：unsigned IPA，需要使用 Xcode 签名后安装
