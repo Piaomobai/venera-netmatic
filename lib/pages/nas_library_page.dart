@@ -528,7 +528,7 @@ class _NasComicDetailPageState extends State<NasComicDetailPage> {
           const SizedBox(height: 16),
           FilledButton.icon(
             key: const Key('nas-comic-read'),
-            onPressed: () => context.to(
+            onPressed: () => context.toRoot(
               () => NasComicReaderPage(comic: comic, service: service),
             ),
             icon: const Icon(Icons.menu_book_outlined),

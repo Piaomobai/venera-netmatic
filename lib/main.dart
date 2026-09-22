@@ -35,9 +35,6 @@ void main(List<String> args) {
             TitleBarStyle.hidden,
             windowButtonVisibility: App.isMacOS,
           );
-          if (App.isLinux) {
-            await windowManager.setBackgroundColor(Colors.transparent);
-          }
           await windowManager.setMinimumSize(const Size(500, 600));
           var placement = await WindowPlacement.loadFromFile();
           if (App.isLinux) {
@@ -199,7 +196,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         tertiary = light.tertiary;
       }
       return MaterialApp(
-        title: "venera",
+        title: "Venera Netmatic",
         home: home,
         debugShowCheckedModeBanner: false,
         theme: getTheme(primary, secondary, tertiary, Brightness.light),
@@ -210,7 +207,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           'dark' => ThemeMode.dark,
           _ => ThemeMode.system
         },
-        color: Colors.transparent,
         localizationsDelegates: [
           GlobalMaterialLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
@@ -279,7 +275,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               );
             }
             return _SystemUiProvider(Material(
-              color: App.isLinux ? Colors.transparent : null,
+              color: App.isLinux
+                  ? Theme.of(context).colorScheme.surface
+                  : null,
               child: widget,
             ));
           }

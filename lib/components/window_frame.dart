@@ -9,6 +9,10 @@ import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _kTitleBarHeight = 36.0;
+const _kFoldedNavigationWidth = 72.0;
+const _kWindowButtonsWidth = 138.0;
+const _kDebugButtonWidth = 72.0;
+const _kMacOSWindowControlsSafeWidth = 78.0;
 
 class WindowFrameController extends InheritedWidget {
   /// Whether the window frame is hidden.
@@ -85,6 +89,66 @@ class _WindowFrameState extends State<WindowFrame> {
     exit(0);
   }
 
+  Widget _buildTitleBar(BuildContext context) {
+    final titleColor =
+        (useDarkTheme || context.brightness == Brightness.dark)
+            ? Colors.white
+            : Colors.black;
+    final titleLeft = App.isMacOS
+        ? _kMacOSWindowControlsSafeWidth
+        : _kFoldedNavigationWidth + 16;
+    final titleRight = App.isMacOS
+        ? _kMacOSWindowControlsSafeWidth
+        : _kWindowButtonsWidth + (kDebugMode ? _kDebugButtonWidth : 0);
+
+    return SizedBox(
+      height: _kTitleBarHeight,
+      child: Stack(
+        children: [
+          const Positioned.fill(
+            child: DragToMoveArea(child: SizedBox.expand()),
+          ),
+          Positioned(
+            left: titleLeft,
+            right: titleRight,
+            top: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: Align(
+                alignment:
+                    App.isMacOS ? Alignment.center : Alignment.centerLeft,
+                child: Text(
+                  'Venera Netmatic',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: titleColor),
+                ),
+              ),
+            ),
+          ),
+          if (kDebugMode)
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: App.isMacOS ? 0 : _kWindowButtonsWidth,
+              child: const SizedBox(
+                width: _kDebugButtonWidth,
+                child: TextButton(onPressed: debug, child: Text('Debug')),
+              ),
+            ),
+          if (!App.isMacOS)
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              child: _WindowButtons(onClose: _onClose),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (App.isMobile) return widget.child;
@@ -113,47 +177,7 @@ class _WindowFrameState extends State<WindowFrame> {
                   brightness: useDarkTheme ? Brightness.dark : null,
                 ),
                 child: Builder(builder: (context) {
-                  return SizedBox(
-                    height: _kTitleBarHeight,
-                    child: Row(
-                      children: [
-                        if (App.isMacOS)
-                          const DragToMoveArea(
-                            child: SizedBox(
-                              height: double.infinity,
-                              width: 16,
-                            ),
-                          ).paddingRight(52)
-                        else
-                          const SizedBox(width: 12),
-                        Expanded(
-                          child: DragToMoveArea(
-                            child: Text(
-                              'Venera Netmatic',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: (useDarkTheme ||
-                                        context.brightness == Brightness.dark)
-                                    ? Colors.white
-                                    : Colors.black,
-                              ),
-                            )
-                                .toAlign(Alignment.centerLeft)
-                                .paddingLeft(4 + (App.isMacOS ? 25 : 0)),
-                          ),
-                        ),
-                        if (kDebugMode)
-                          const TextButton(
-                            onPressed: debug,
-                            child: Text('Debug'),
-                          ),
-                        if (!App.isMacOS)
-                          _WindowButtons(
-                            onClose: _onClose,
-                          )
-                      ],
-                    ),
-                  );
+                  return _buildTitleBar(context);
                 }),
               ),
             ),
@@ -229,7 +253,7 @@ class _WindowButtonsState extends State<_WindowButtons> with WindowListener {
     final hoverColor = dark ? Colors.white30 : Colors.black12;
 
     return SizedBox(
-      width: 138,
+      width: _kWindowButtonsWidth,
       height: _kTitleBarHeight,
       child: Row(
         children: [
@@ -543,7 +567,6 @@ class VirtualWindowFrame extends StatefulWidget {
 
 class _VirtualWindowFrameState extends State<VirtualWindowFrame>
     with WindowListener {
-  bool _isFocused = true;
   bool _isMaximized = false;
   bool _isFullScreen = false;
 
@@ -559,46 +582,15 @@ class _VirtualWindowFrameState extends State<VirtualWindowFrame>
     super.dispose();
   }
 
-  Widget _buildVirtualWindowFrame(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(_isMaximized ? 0 : 8),
-        color: Colors.transparent,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.toOpacity(_isFocused ? 0.4 : 0.2),
-            blurRadius: 4,
-          )
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: widget.child,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return DragToResizeArea(
       enableResizeEdges: (_isMaximized || _isFullScreen) ? [] : null,
-      child: Padding(
-        padding: EdgeInsets.all(_isMaximized ? 0 : 4),
-        child: _buildVirtualWindowFrame(context),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: widget.child,
       ),
     );
-  }
-
-  @override
-  void onWindowFocus() {
-    setState(() {
-      _isFocused = true;
-    });
-  }
-
-  @override
-  void onWindowBlur() {
-    setState(() {
-      _isFocused = false;
-    });
   }
 
   @override

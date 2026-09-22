@@ -19,6 +19,16 @@ extension Navigation on BuildContext {
         builder: (context) => builder()));
   }
 
+  /// Pushes a page above the whole application shell.
+  ///
+  /// Use this for immersive pages such as the comic reader. The regular
+  /// [to] method intentionally uses the nearest navigator, which keeps the
+  /// desktop navigation rail visible when called from inside [NaviPane].
+  Future<T?> toRoot<T>(Widget Function() builder) {
+    return Navigator.of(this, rootNavigator: true).push<T>(AppPageRoute(
+        builder: (context) => builder()));
+  }
+
   Future<void> toReplacement<T>(Widget Function() builder) {
     return Navigator.of(this).pushReplacement(AppPageRoute(
         builder: (context) => builder()));
