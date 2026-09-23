@@ -5,7 +5,8 @@ import 'package:venera_netmatic/foundation/cache_manager.dart';
 import 'package:venera_netmatic/foundation/local.dart';
 import 'package:venera_netmatic/foundation/log.dart';
 import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
-import 'package:venera_netmatic/pages/local_comics_page.dart' show openComicFolder;
+import 'package:venera_netmatic/pages/local_comics_page.dart'
+    show openComicFolder;
 import 'package:venera_netmatic/pages/nas_sync_progress.dart';
 import 'package:venera_netmatic/utils/io.dart';
 import 'package:venera_netmatic/utils/translations.dart';
@@ -102,10 +103,7 @@ class _StorageManagerPageState extends State<StorageManagerPage> {
         (manager.connections.isEmpty ? null : manager.connections.first);
     if (connection == null) return;
     try {
-      final result = await manager.syncAll(
-        connection.id,
-        skipMarkedComics: true,
-      );
+      final result = await manager.syncAll(connection.id);
       if (mounted) {
         context.showMessage(
           message: 'NAS sync complete: @a uploaded, @b unchanged.'.tlParams({

@@ -29,7 +29,12 @@ abstract interface class NasRemoteClient {
   Future<int?> fileSize(String path);
   Future<Uint8List?> readBytes(String path);
   Future<List<NasRemoteEntry>> listDirectory(String path);
-  Future<void> uploadFile(File file, String path, {NasProgress? onProgress});
+  Future<void> uploadFile(
+    File file,
+    String path, {
+    NasProgress? onProgress,
+    bool preservePrevious = false,
+  });
   Future<void> uploadBytes(
     Uint8List data,
     String path, {
@@ -53,6 +58,49 @@ String _parentOf(String path) {
 
 String _temporaryUploadPath(String path) =>
     '$path.venera-uploading-${DateTime.now().microsecondsSinceEpoch}';
+
+/// Keeps the previous remote file available until the new upload has been
+/// promoted. Protocols that cannot rename over an existing target use this
+/// backup-and-rollback sequence.
+Future<void> replaceRemoteFileKeepingBackup({
+  required String temporary,
+  required String target,
+  bool preservePrevious = false,
+  required Future<bool> Function(String path) exists,
+  required Future<void> Function(String from, String to) rename,
+  required Future<void> Function(String path) delete,
+}) async {
+  final backup =
+      '$target.venera-backup-${DateTime.now().microsecondsSinceEpoch}';
+  var hasBackup = false;
+  try {
+    if (await exists(target)) {
+      await rename(target, backup);
+      hasBackup = true;
+    }
+    await rename(temporary, target);
+  } catch (error) {
+    if (hasBackup) {
+      try {
+        if (await exists(target)) await delete(target);
+        await rename(backup, target);
+      } catch (restoreError) {
+        throw StateError(
+          'Could not restore the old NAS file. It remains at $backup. '
+          'Upload error: $error; restore error: $restoreError',
+        );
+      }
+    }
+    rethrow;
+  }
+  if (hasBackup && !preservePrevious) {
+    try {
+      await delete(backup);
+    } catch (_) {
+      // A leftover backup is safer than reporting a failed, completed upload.
+    }
+  }
+}
 
 class _WebDavNasClient implements NasRemoteClient {
   _WebDavNasClient(this.connection);
@@ -119,6 +167,7 @@ class _WebDavNasClient implements NasRemoteClient {
     File file,
     String path, {
     NasProgress? onProgress,
+    bool preservePrevious = false,
   }) async {
     await ensureDirectory(_parentOf(path));
     final temporary = _temporaryUploadPath(path);
@@ -128,7 +177,25 @@ class _WebDavNasClient implements NasRemoteClient {
         _path(temporary),
         onProgress: onProgress,
       );
-      await _client.rename(_path(temporary), _path(path), true);
+      if (preservePrevious) {
+        await replaceRemoteFileKeepingBackup(
+          temporary: _path(temporary),
+          target: _path(path),
+          preservePrevious: true,
+          exists: (remote) async {
+            try {
+              await _client.readProps(remote);
+              return true;
+            } catch (_) {
+              return false;
+            }
+          },
+          rename: (from, to) => _client.rename(from, to, false),
+          delete: _client.remove,
+        );
+      } else {
+        await _client.rename(_path(temporary), _path(path), true);
+      }
     } catch (_) {
       try {
         await _client.remove(_path(temporary));
@@ -230,23 +297,32 @@ class _FtpNasClient implements NasRemoteClient {
     File file,
     String path, {
     NasProgress? onProgress,
+    bool preservePrevious = false,
   }) async {
     await ensureDirectory(_parentOf(path));
     final temporary = _ftpPath(_temporaryUploadPath(path));
     final target = _ftpPath(path);
-    final ok = await _client.uploadFile(
-      file,
-      sRemoteName: temporary,
-      onProgress: onProgress == null
-          ? null
-          : (_, sent, total) => onProgress(sent, total),
-    );
-    if (!ok) throw Exception('FTP upload failed: $path');
     try {
-      if (await _client.existFile(target)) await _client.deleteFile(target);
-      if (!await _client.rename(temporary, target)) {
-        throw Exception('FTP could not finalize upload: $path');
-      }
+      final ok = await _client.uploadFile(
+        file,
+        sRemoteName: temporary,
+        onProgress: onProgress == null
+            ? null
+            : (_, sent, total) => onProgress(sent, total),
+      );
+      if (!ok) throw Exception('FTP upload failed: $path');
+      await replaceRemoteFileKeepingBackup(
+        temporary: temporary,
+        target: target,
+        preservePrevious: preservePrevious,
+        exists: _client.existFile,
+        rename: (from, to) async {
+          if (!await _client.rename(from, to)) {
+            throw StateError('FTP rename failed: $from -> $to');
+          }
+        },
+        delete: _client.deleteFile,
+      );
     } catch (_) {
       try {
         await _client.deleteFile(temporary);
@@ -264,19 +340,26 @@ class _FtpNasClient implements NasRemoteClient {
     await ensureDirectory(_parentOf(path));
     final temporary = _ftpPath(_temporaryUploadPath(path));
     final target = _ftpPath(path);
-    final ok = await _client.uploadData(
-      data,
-      temporary,
-      onProgress: onProgress == null
-          ? null
-          : (_, sent, total) => onProgress(sent, total),
-    );
-    if (!ok) throw Exception('FTP upload failed: $path');
     try {
-      if (await _client.existFile(target)) await _client.deleteFile(target);
-      if (!await _client.rename(temporary, target)) {
-        throw Exception('FTP could not finalize upload: $path');
-      }
+      final ok = await _client.uploadData(
+        data,
+        temporary,
+        onProgress: onProgress == null
+            ? null
+            : (_, sent, total) => onProgress(sent, total),
+      );
+      if (!ok) throw Exception('FTP upload failed: $path');
+      await replaceRemoteFileKeepingBackup(
+        temporary: temporary,
+        target: target,
+        exists: _client.existFile,
+        rename: (from, to) async {
+          if (!await _client.rename(from, to)) {
+            throw StateError('FTP rename failed: $from -> $to');
+          }
+        },
+        delete: _client.deleteFile,
+      );
     } catch (_) {
       try {
         await _client.deleteFile(temporary);
@@ -368,6 +451,7 @@ class _SmbNasClient implements NasRemoteClient {
     File file,
     String path, {
     NasProgress? onProgress,
+    bool preservePrevious = false,
   }) async {
     await ensureDirectory(_parentOf(path));
     final target = normalizeRemotePath(path);
@@ -381,8 +465,14 @@ class _SmbNasClient implements NasRemoteClient {
     });
     try {
       await pool.streamWrite(temporary, stream);
-      if (await pool.exists(target)) await pool.deleteFile(target);
-      await pool.rename(temporary, target);
+      await replaceRemoteFileKeepingBackup(
+        temporary: temporary,
+        target: target,
+        preservePrevious: preservePrevious,
+        exists: pool.exists,
+        rename: pool.rename,
+        delete: pool.deleteFile,
+      );
     } catch (_) {
       try {
         if (await pool.exists(temporary)) await pool.deleteFile(temporary);
@@ -402,8 +492,13 @@ class _SmbNasClient implements NasRemoteClient {
     final temporary = normalizeRemotePath(_temporaryUploadPath(path));
     try {
       await pool.writeFile(temporary, data);
-      if (await pool.exists(target)) await pool.deleteFile(target);
-      await pool.rename(temporary, target);
+      await replaceRemoteFileKeepingBackup(
+        temporary: temporary,
+        target: target,
+        exists: pool.exists,
+        rename: pool.rename,
+        delete: pool.deleteFile,
+      );
       onProgress?.call(data.length, data.length);
     } catch (_) {
       try {

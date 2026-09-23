@@ -248,7 +248,13 @@ class SchedulerEngine with ChangeNotifier {
   /// first check anyway, and re-running it here would duplicate the work.
   void _markRunOnStartTasksDue() {
     final now = DateTime.now();
-    final truncated = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    final truncated = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+    );
     for (final task in List<TaskDefinition>.from(_tasks)) {
       if (!task.enabled || !task.runOnStart) {
         continue;
@@ -265,8 +271,10 @@ class SchedulerEngine with ChangeNotifier {
     final now = DateTime.now();
     for (final task in List<TaskDefinition>.from(_tasks)) {
       if (task.enabled && task.nextRunAt == null) {
-        _replace(task.copyWith(nextRunAt: task.computeNextRun(now)),
-            persist: true);
+        _replace(
+          task.copyWith(nextRunAt: task.computeNextRun(now)),
+          persist: true,
+        );
       }
     }
   }
@@ -312,7 +320,9 @@ class SchedulerEngine with ChangeNotifier {
       retry: retry,
       sortOrder: _tasks.length,
       createdAt: now,
-      nextRunAt: enabled ? schedule.nextAfter(now) ?? now.add(const Duration(hours: 24)) : null,
+      nextRunAt: enabled
+          ? schedule.nextAfter(now) ?? now.add(const Duration(hours: 24))
+          : null,
     );
     _tasks.add(task);
     _persist(task);
@@ -333,7 +343,9 @@ class SchedulerEngine with ChangeNotifier {
       updated = updated.copyWith(clearNextRunAt: true);
     } else if (previous.schedule != task.schedule ||
         previous.nextRunAt == null) {
-      updated = updated.copyWith(nextRunAt: task.computeNextRun(DateTime.now()));
+      updated = updated.copyWith(
+        nextRunAt: task.computeNextRun(DateTime.now()),
+      );
     }
     _tasks[index] = updated;
     _persist(updated);
@@ -345,11 +357,13 @@ class SchedulerEngine with ChangeNotifier {
     if (task == null) {
       return;
     }
-    updateTask(task.copyWith(
-      enabled: enabled,
-      nextRunAt: enabled ? task.computeNextRun(DateTime.now()) : null,
-      clearNextRunAt: !enabled,
-    ));
+    updateTask(
+      task.copyWith(
+        enabled: enabled,
+        nextRunAt: enabled ? task.computeNextRun(DateTime.now()) : null,
+        clearNextRunAt: !enabled,
+      ),
+    );
   }
 
   void deleteTask(String id) {
@@ -422,13 +436,19 @@ class SchedulerEngine with ChangeNotifier {
       return;
     }
     final now = DateTime.now();
-    final due = _tasks
-        .where((t) => t.enabled && t.nextRunAt != null && !t.nextRunAt!.isAfter(now))
-        .toList()
-      ..sort((a, b) {
-        final byTime = a.nextRunAt!.compareTo(b.nextRunAt!);
-        return byTime != 0 ? byTime : a.sortOrder.compareTo(b.sortOrder);
-      });
+    final due =
+        _tasks
+            .where(
+              (t) =>
+                  t.enabled &&
+                  t.nextRunAt != null &&
+                  !t.nextRunAt!.isAfter(now),
+            )
+            .toList()
+          ..sort((a, b) {
+            final byTime = a.nextRunAt!.compareTo(b.nextRunAt!);
+            return byTime != 0 ? byTime : a.sortOrder.compareTo(b.sortOrder);
+          });
     if (due.isEmpty) {
       return;
     }
@@ -531,9 +551,20 @@ class SchedulerEngine with ChangeNotifier {
     }
 
     // Bookkeeping: consecutive failures drive the retry backoff.
-    final current = findTask(task.id) ?? task;
-    final failures =
-        outcome.success ? 0 : current.consecutiveFailures + 1;
+    // The user can delete a task while its runner is still active. Its run is
+    // allowed to finish, but the result must never recreate the deleted task.
+    final current = findTask(task.id);
+    if (current == null) {
+      _isExecuting = false;
+      _activeTaskId = null;
+      _activeRun = null;
+      _activeProgress = null;
+      _activeMessage = null;
+      _cancelRequested = false;
+      _notify();
+      return;
+    }
+    final failures = outcome.success ? 0 : current.consecutiveFailures + 1;
     var updated = current.copyWith(
       lastState: state,
       consecutiveFailures: failures,
@@ -549,7 +580,8 @@ class SchedulerEngine with ChangeNotifier {
     if (next == null) {
       // A manual run must not push back an already-scheduled calendar slot.
       final pending = updated.nextRunAt;
-      final keepPending = manual &&
+      final keepPending =
+          manual &&
           pending != null &&
           pending.isAfter(finishedAt) &&
           updated.schedule.type != ScheduleType.interval;
@@ -567,10 +599,7 @@ class SchedulerEngine with ChangeNotifier {
       '${outcome.message == null ? '' : ' - ${outcome.message}'}'
       '${outcome.error == null ? '' : ' - ${outcome.error}'}',
     );
-    Log.info(
-      'Scheduler',
-      'Task "${task.name}" finished: ${state.name}',
-    );
+    Log.info('Scheduler', 'Task "${task.name}" finished: ${state.name}');
 
     _isExecuting = false;
     _activeTaskId = null;

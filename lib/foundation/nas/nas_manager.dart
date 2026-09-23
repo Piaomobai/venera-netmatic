@@ -329,10 +329,7 @@ class NasManager with ChangeNotifier {
     }
   }
 
-  Future<NasSyncResult> syncAll(
-    String connectionId, {
-    bool skipMarkedComics = false,
-  }) async {
+  Future<NasSyncResult> syncAll(String connectionId) async {
     if (_isSyncing) throw StateError('A NAS sync is already running');
     final connection = find(connectionId);
     if (connection == null) throw StateError('NAS connection not found');
@@ -358,12 +355,6 @@ class NasManager with ChangeNotifier {
       await client.connect();
       final files = await _libraryFiles();
       final comics = LocalManager().getComics(LocalSortType.timeDesc);
-      final markedComicKeys = skipMarkedComics
-          ? comics
-                .where((comic) => isComicSynced(connectionId, comic))
-                .map(_comicMarkerKey)
-                .toSet()
-          : <String>{};
       final comicsWithFiles = <String, LocalComic>{};
       final stats = <File, FileStat>{};
       var overallBytes = 0;
@@ -399,24 +390,6 @@ class NasManager with ChangeNotifier {
         final owner = _findOwningComic(file, comics);
         if (owner != null) {
           comicsWithFiles[_comicMarkerKey(owner)] = owner;
-        }
-        if (owner != null && markedComicKeys.contains(_comicMarkerKey(owner))) {
-          skipped++;
-          completedBytes += stat.size;
-          _setProgress(
-            scanned: scanned,
-            totalFiles: files.length,
-            uploaded: uploaded,
-            skipped: skipped,
-            path: relative,
-            sent: 0,
-            currentTotal: stat.size,
-            completedBytes: completedBytes,
-            totalBytes: overallBytes,
-            uploadedBytes: uploadedBytes,
-            startedAt: startedAt,
-          );
-          continue;
         }
         final remote = joinRemotePath([
           connection.remotePath,
@@ -460,6 +433,7 @@ class NasManager with ChangeNotifier {
         await client.uploadFile(
           file,
           remote,
+          preservePrevious: remoteSize != null,
           onProgress: (sent, total) {
             _setProgress(
               scanned: scanned,
@@ -569,7 +543,9 @@ class NasManager with ChangeNotifier {
         recursive: true,
         followLinks: false,
       )) {
-        if (entity is File) files.add(entity);
+        if (entity is File && !_isNasTransferArtifact(entity.path)) {
+          files.add(entity);
+        }
       }
       if (files.isEmpty) {
         throw StateError('Downloaded comic directory contains no files');
@@ -637,6 +613,7 @@ class NasManager with ChangeNotifier {
         await client.uploadFile(
           entity,
           remote,
+          preservePrevious: remoteSize != null,
           onProgress: (sent, total) {
             onProgress?.call(sent, total);
             _setProgress(
@@ -708,11 +685,22 @@ class NasManager with ChangeNotifier {
     if (!await root.exists()) return const [];
     final result = <File>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
-      if (entity is File) result.add(entity);
+      if (entity is File && !_isNasTransferArtifact(entity.path)) {
+        result.add(entity);
+      }
     }
     result.sort((a, b) => a.path.compareTo(b.path));
     return result;
   }
+
+  bool _isNasTransferArtifact(String path) => path
+      .replaceAll('\\', '/')
+      .split('/')
+      .any(
+        (part) =>
+            part.contains('.venera-download-') ||
+            part.contains('.venera-backup-'),
+      );
 
   String _relativeLocalPath(String absolutePath) {
     return absolutePath
@@ -846,30 +834,36 @@ class NasManager with ChangeNotifier {
     NasRemoteClient client,
     NasConnection connection,
   ) async {
-    try {
-      final bytes = await client.readBytes(_manifestPath(connection));
-      if (bytes == null) return {};
-      final decoded = jsonDecode(utf8.decode(bytes));
-      if (decoded is! Map || decoded['format'] != 1) return {};
-      final rawFiles = decoded['files'];
-      if (rawFiles is! Map) return {};
-      final result = <String, _NasManifestEntry>{};
-      for (final entry in rawFiles.entries) {
-        if (entry.key is! String || entry.value is! Map) continue;
-        final value = Map<String, dynamic>.from(entry.value as Map);
-        final hash = value['sha256'];
-        final size = value['size'];
-        if (hash is String && size is num) {
-          result[entry.key as String] = _NasManifestEntry(
-            sha256: hash,
-            size: size.toInt(),
-          );
-        }
+    final path = _manifestPath(connection);
+    final bytes = await client.readBytes(path);
+    if (bytes == null) {
+      if (await client.fileSize(path) != null) {
+        throw StateError('Could not read the NAS sync manifest');
       }
-      return result;
-    } catch (_) {
       return {};
     }
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map || decoded['format'] != 1) {
+      throw const FormatException('Unsupported NAS sync manifest');
+    }
+    final rawFiles = decoded['files'];
+    if (rawFiles is! Map) {
+      throw const FormatException('Invalid NAS sync manifest');
+    }
+    final result = <String, _NasManifestEntry>{};
+    for (final entry in rawFiles.entries) {
+      if (entry.key is! String || entry.value is! Map) continue;
+      final value = Map<String, dynamic>.from(entry.value as Map);
+      final hash = value['sha256'];
+      final size = value['size'];
+      if (hash is String && size is num) {
+        result[entry.key as String] = _NasManifestEntry(
+          sha256: hash,
+          size: size.toInt(),
+        );
+      }
+    }
+    return result;
   }
 
   Future<void> _writeRemoteManifest(

@@ -9,6 +9,7 @@ import 'package:venera_netmatic/foundation/appdata.dart';
 import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/log.dart';
 import 'package:venera_netmatic/network/app_dio.dart';
+import 'package:venera_netmatic/network/cache.dart';
 import 'package:venera_netmatic/network/cookie_jar.dart';
 import 'package:venera_netmatic/pages/webview.dart';
 import 'package:venera_netmatic/utils/ext.dart';
@@ -1062,6 +1063,7 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
         onTap: () {
           source.data["account"] = null;
           source.account?.logout();
+          NetworkCacheManager().clear();
           source.saveData();
           ComicSourceManager().notifyStateChange();
           setState(() {});

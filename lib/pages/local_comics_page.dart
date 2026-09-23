@@ -89,10 +89,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
     final connectionId = await selectNasConnection(context);
     if (connectionId == null) return;
     try {
-      final result = await NasManager.instance.syncAll(
-        connectionId,
-        skipMarkedComics: true,
-      );
+      final result = await NasManager.instance.syncAll(connectionId);
       if (mounted) {
         context.showMessage(
           message: 'NAS sync complete: @a uploaded, @b unchanged.'.tlParams({

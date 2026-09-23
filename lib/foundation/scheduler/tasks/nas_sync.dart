@@ -17,8 +17,8 @@ class NasSyncRunner extends SchedulableRunner {
 
   @override
   String get description =>
-      'Synchronize the local comic library to a NAS, skipping comics already '
-      'marked as current and files with the same SHA-256 hash';
+      'Synchronize the local comic library to a NAS, checking every file '
+      'against its saved SHA-256 hash and remote size';
 
   @override
   Map<String, dynamic> defaultConfig() => <String, dynamic>{
@@ -66,10 +66,7 @@ class NasSyncRunner extends SchedulableRunner {
     manager.addListener(reportNasProgress);
     try {
       context.log('Synchronizing to NAS "${connection.name}"');
-      final result = await manager.syncAll(
-        connectionId,
-        skipMarkedComics: true,
-      );
+      final result = await manager.syncAll(connectionId);
       context.throwIfCancelled();
       final message =
           'NAS sync complete: ${result.uploadedFiles} uploaded, '

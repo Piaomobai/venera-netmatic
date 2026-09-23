@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 
+import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/widgets.dart' show ChangeNotifier;
 import 'package:flutter_saf/flutter_saf.dart';
 import 'package:venera_netmatic/foundation/app.dart';
@@ -8,6 +11,7 @@ import 'package:venera_netmatic/foundation/appdata.dart';
 import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/comic_type.dart';
 import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/nas/nas_library.dart';
 import 'package:venera_netmatic/foundation/nas/nas_manager.dart';
 import 'package:venera_netmatic/foundation/log.dart';
 import 'package:venera_netmatic/foundation/res.dart';
@@ -15,7 +19,7 @@ import 'package:venera_netmatic/network/images.dart';
 import 'package:venera_netmatic/utils/ext.dart';
 import 'package:venera_netmatic/utils/file_type.dart';
 import 'package:venera_netmatic/utils/io.dart';
-import 'package:zip_flutter/zip_flutter.dart';
+import 'package:path/path.dart' as path_util;
 
 import 'file_downloader.dart';
 
@@ -712,6 +716,21 @@ class ArchiveDownloadTask extends DownloadTask {
 
   FileDownloader? _downloader;
 
+  Future<void>? _pendingStop;
+
+  Future<void>? _activeFinalization;
+
+  int _runGeneration = 0;
+
+  File get _archiveFile {
+    final identity = '${comic.sourceKey}|${comic.id}|$archiveUrl';
+    final suffix = sha256
+        .convert(utf8.encode(identity))
+        .toString()
+        .substring(0, 20);
+    return File(FilePath.join(App.dataPath, 'archive_downloading_$suffix.zip'));
+  }
+
   String _message = "Fetching comic info...";
 
   bool _isRunning = false;
@@ -729,9 +748,26 @@ class ArchiveDownloadTask extends DownloadTask {
   @override
   void cancel() async {
     _isRunning = false;
-    await _downloader?.stop();
+    _runGeneration++;
+    await _pendingStop;
+    try {
+      await _activeFinalization;
+    } catch (_) {
+      // An interrupted operation is cleaned up below.
+    }
+    if (_downloader != null) {
+      await _downloader!.deletePartial();
+    } else {
+      final archive = _archiveFile;
+      if (await archive.exists()) await archive.delete();
+      final status = File('${archive.path}.download');
+      if (await status.exists()) await status.delete();
+    }
     if (path != null) {
-      Directory(path!).deleteIgnoreError(recursive: true);
+      final existing = LocalManager().find(id, comicType);
+      if (existing == null || existing.baseDir != path) {
+        await Directory(path!).deleteIgnoreError(recursive: true);
+      }
     }
     path = null;
     LocalManager().removeTask(this);
@@ -764,8 +800,16 @@ class ArchiveDownloadTask extends DownloadTask {
   @override
   void pause() {
     _isRunning = false;
+    _runGeneration++;
     _message = "Paused";
-    _downloader?.stop();
+    _pendingStop = () async {
+      await _downloader?.stop();
+      try {
+        await _activeFinalization;
+      } catch (_) {
+        // The running operation reports its own error.
+      }
+    }();
     notifyListeners();
   }
 
@@ -778,9 +822,12 @@ class ArchiveDownloadTask extends DownloadTask {
     if (_isRunning) {
       return;
     }
+    final generation = ++_runGeneration;
     _isError = false;
     _isRunning = true;
     notifyListeners();
+    await _pendingStop;
+    if (generation != _runGeneration || !_isRunning) return;
     _message = "Downloading...";
 
     if (path == null) {
@@ -790,6 +837,7 @@ class ArchiveDownloadTask extends DownloadTask {
         comic.title,
         author: comic.findAuthor() ?? comic.subTitle ?? comic.uploader,
       );
+      if (generation != _runGeneration || !_isRunning) return;
       if (!(await dir.exists())) {
         try {
           await dir.create();
@@ -801,13 +849,18 @@ class ArchiveDownloadTask extends DownloadTask {
       path = dir.path;
     }
 
-    var archiveFile = File(
-      FilePath.join(App.dataPath, "archive_downloading.zip"),
-    );
+    if (generation != _runGeneration || !_isRunning) return;
+
+    final archiveFile = _archiveFile;
 
     Log.info("Download", "Downloading $archiveUrl");
 
-    _downloader = FileDownloader(archiveUrl, archiveFile.path);
+    final threads = (appdata.settings['downloadThreads'] as num?)?.toInt() ?? 4;
+    _downloader = FileDownloader(
+      archiveUrl,
+      archiveFile.path,
+      maxConcurrent: threads.clamp(1, 8).toInt(),
+    );
 
     bool isDownloaded = false;
 
@@ -826,7 +879,7 @@ class ArchiveDownloadTask extends DownloadTask {
       return;
     }
 
-    if (!_isRunning) {
+    if (!_isRunning || generation != _runGeneration) {
       return;
     }
 
@@ -835,17 +888,59 @@ class ArchiveDownloadTask extends DownloadTask {
       return;
     }
 
+    final finalization = _finishArchive(archiveFile, generation);
+    _activeFinalization = finalization;
     try {
-      await _extractArchive(archiveFile.path, path!);
-    } catch (e) {
-      _setError("Failed to extract archive: $e");
-      return;
+      await finalization;
+    } finally {
+      _activeFinalization = null;
     }
+  }
 
-    await archiveFile.deleteIgnoreError();
+  Future<void> _finishArchive(File archiveFile, int generation) async {
+    final staging = Directory(
+      '${path!}.venera-download-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    NasFileInstall? install;
+    var committed = false;
+    try {
+      await _extractArchive(archiveFile.path, staging.path);
+      if (!_isRunning || generation != _runGeneration) return;
 
-    if (!await _uploadToNasIfNeeded()) return;
-    LocalManager().completeTask(this);
+      final files = <String>[];
+      await for (final entity in staging.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is File) {
+          files.add(FilePath.relativeTo(staging.path, entity.path));
+        }
+      }
+      if (!files.any(
+        (relative) => !relative.contains('/') && _isComicImagePath(relative),
+      )) {
+        throw const FormatException('The archive contains no comic images');
+      }
+      install = await NasFileInstall.begin(staging, Directory(path!), files);
+      if (!_isRunning || generation != _runGeneration) return;
+
+      if (!await _uploadToNasIfNeeded()) return;
+      if (!_isRunning || generation != _runGeneration) return;
+
+      LocalManager().completeTask(this);
+      committed = true;
+      await install.finish();
+      await archiveFile.deleteIgnoreError();
+    } catch (error) {
+      if (_isRunning && generation == _runGeneration) {
+        _setError('Failed to install archive: $error');
+      }
+    } finally {
+      if (!committed && install != null) {
+        await install.rollback();
+      }
+      await staging.deleteIgnoreError(recursive: true);
+    }
   }
 
   Future<bool> _uploadToNasIfNeeded() async {
@@ -875,17 +970,20 @@ class ArchiveDownloadTask extends DownloadTask {
     var out = Directory(outDir);
     if (out is AndroidDirectory) {
       // Saf directory can't be accessed by native code.
-      var cacheDir = FilePath.join(App.cachePath, "archive_downloading");
-      Directory(cacheDir).forceCreateSync();
-      await Isolate.run(() {
-        ZipFile.openAndExtract(archive, cacheDir);
-      });
-      await copyDirectoryIsolate(Directory(cacheDir), Directory(outDir));
-      await Directory(cacheDir).deleteIgnoreError(recursive: true);
+      final cacheDir = Directory(
+        FilePath.join(
+          App.cachePath,
+          'archive_downloading_${DateTime.now().microsecondsSinceEpoch}',
+        ),
+      );
+      try {
+        await Isolate.run(() => extractComicArchive(archive, cacheDir.path));
+        await copyDirectoryIsolate(cacheDir, out);
+      } finally {
+        await cacheDir.deleteIgnoreError(recursive: true);
+      }
     } else {
-      await Isolate.run(() {
-        ZipFile.openAndExtract(archive, outDir);
-      });
+      await Isolate.run(() => extractComicArchive(archive, outDir));
     }
   }
 
@@ -918,7 +1016,14 @@ class ArchiveDownloadTask extends DownloadTask {
   }
 
   String _findCover() {
-    var files = Directory(path!).listSync();
+    final files = Directory(path!)
+        .listSync()
+        .whereType<File>()
+        .where((file) => _isComicImagePath(file.path))
+        .toList();
+    if (files.isEmpty) {
+      throw const FormatException('The archive contains no comic images');
+    }
     for (var f in files) {
       if (f.name.startsWith('cover')) {
         return f.name;
@@ -946,5 +1051,61 @@ class ArchiveDownloadTask extends DownloadTask {
       downloadedChapters: [],
       createdAt: DateTime.now(),
     );
+  }
+}
+
+bool _isComicImagePath(String path) => const {
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'bmp',
+}.contains(path.split('.').last.toLowerCase());
+
+/// Extracts a ZIP archive to an empty staging directory. Rejects paths that
+/// escape it and checks each file before any comic image is replaced.
+Future<void> extractComicArchive(String archivePath, String outputPath) async {
+  final root = path_util.canonicalize(path_util.absolute(outputPath));
+  final input = InputFileStream(archivePath);
+  try {
+    final archive = ZipDecoder().decodeStream(input);
+    Directory(root).createSync(recursive: true);
+    for (final entry in archive) {
+      final target = path_util.canonicalize(path_util.join(root, entry.name));
+      if (path_util.isAbsolute(entry.name) ||
+          (target != root && !path_util.isWithin(root, target)) ||
+          entry.isSymbolicLink) {
+        throw FormatException('Unsafe archive entry: ${entry.name}');
+      }
+      if (entry.isDirectory) {
+        Directory(target).createSync(recursive: true);
+        continue;
+      }
+      if (!entry.isFile) continue;
+
+      final outputFile = File(target);
+      outputFile.parent.createSync(recursive: true);
+      final output = OutputFileStream(target);
+      try {
+        entry.writeContent(output);
+      } finally {
+        output.closeSync();
+      }
+      if (outputFile.lengthSync() != entry.size) {
+        throw FormatException('Truncated archive entry: ${entry.name}');
+      }
+      if (entry.crc32 case final expectedCrc?) {
+        var actualCrc = 0;
+        await for (final chunk in outputFile.openRead()) {
+          actualCrc = getCrc32(chunk, actualCrc);
+        }
+        if (actualCrc != expectedCrc) {
+          throw FormatException('Corrupt archive entry: ${entry.name}');
+        }
+      }
+    }
+  } finally {
+    await input.close();
   }
 }

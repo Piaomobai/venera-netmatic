@@ -2,7 +2,7 @@ name: venera_netmatic
 description: "A comic app."
 publish_to: 'none'
 
-version: 2.0.2+4
+version: 2.0.3+5
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -54,6 +54,7 @@ dependencies:
   flutter_file_dialog: ^3.0.3
   file_selector: ^1.1.0
   zip_flutter: ^0.0.13
+  archive: ^4.0.7
   lodepng_flutter:
     git:
       url: https://github.com/venera-app/lodepng_flutter
@@ -95,7 +96,6 @@ dev_dependencies:
   flutter_to_debian: 
     git:
       url: https://github.com/venera-app/flutter_to_debian.git
-  archive: any
 
 flutter:
   uses-material-design: true

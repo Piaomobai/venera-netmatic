@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/comic_type.dart';
 import 'package:venera_netmatic/foundation/history.dart';
 import 'package:venera_netmatic/foundation/local.dart';
+import 'package:venera_netmatic/foundation/log.dart';
 import 'package:venera_netmatic/utils/io.dart';
 
 import 'nas_connection.dart';
@@ -13,6 +15,80 @@ import 'nas_remote_client.dart';
 
 typedef NasLibraryDownloadProgress =
     void Function(int completedFiles, int totalFiles, String currentPath);
+
+/// Installs validated files while keeping the previous local files available
+/// for rollback until the library database has been updated.
+class NasFileInstall {
+  NasFileInstall._(this._entries);
+
+  final List<({File target, File? backup})> _entries;
+
+  static Future<NasFileInstall> begin(
+    Directory staging,
+    Directory destination,
+    List<String> relativePaths,
+  ) async {
+    final entries = <({File target, File? backup})>[];
+    final install = NasFileInstall._(entries);
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    try {
+      await destination.create(recursive: true);
+      for (final relative in relativePaths) {
+        final parts = relative.replaceAll('\\', '/').split('/');
+        if (FilePath.isAbsolute(relative) ||
+            parts.any((part) => part.isEmpty || part == '.' || part == '..')) {
+          throw FormatException('Invalid local install path: $relative');
+        }
+        final staged = File(FilePath.join(staging.path, relative));
+        final target = File(FilePath.join(destination.path, relative));
+        await target.parent.create(recursive: true);
+        File? backup;
+        if (await target.exists()) {
+          backup = File('${target.path}.venera-backup-$stamp');
+          await target.rename(backup.path);
+        }
+        entries.add((target: target, backup: backup));
+        try {
+          await staged.rename(target.path);
+        } on FileSystemException {
+          // Storage Access Framework destinations can live on a different
+          // volume, where rename is unsupported.
+          await staged.copyMem(target.path);
+          await staged.delete();
+        }
+      }
+      return install;
+    } catch (_) {
+      await install.rollback();
+      rethrow;
+    }
+  }
+
+  Future<void> rollback() async {
+    for (final entry in _entries.reversed) {
+      if (await entry.target.exists()) await entry.target.delete();
+      final backup = entry.backup;
+      if (backup != null && await backup.exists()) {
+        await backup.rename(entry.target.path);
+      }
+    }
+    _entries.clear();
+  }
+
+  Future<void> finish() async {
+    for (final entry in _entries) {
+      final backup = entry.backup;
+      if (backup != null) {
+        try {
+          if (await backup.exists()) await backup.delete();
+        } catch (_) {
+          // A leftover backup does not invalidate the installed comic.
+        }
+      }
+    }
+    _entries.clear();
+  }
+}
 
 /// Metadata written by [NasManager] alongside a synchronized comic library.
 ///
@@ -127,6 +203,32 @@ class NasLibraryService {
   String get _indexPath =>
       joinRemotePath([connection.remotePath, '_venera', 'library-index.json']);
 
+  String get _manifestPath =>
+      joinRemotePath([connection.remotePath, '_venera', 'sync-manifest.json']);
+
+  Future<Map<String, ({int size, String hash})>> _loadManifest() async {
+    final bytes = await _withClient(
+      (client) => client.readBytes(_manifestPath),
+    );
+    if (bytes == null) return {};
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map || decoded['format'] != 1 || decoded['files'] is! Map) {
+      throw const FormatException('The NAS sync manifest is invalid');
+    }
+    final result = <String, ({int size, String hash})>{};
+    for (final entry in (decoded['files'] as Map).entries) {
+      if (entry.key is! String || entry.value is! Map) continue;
+      final item = entry.value as Map;
+      if (item['size'] is num && item['sha256'] is String) {
+        result[entry.key as String] = (
+          size: (item['size'] as num).toInt(),
+          hash: item['sha256'] as String,
+        );
+      }
+    }
+    return result;
+  }
+
   Future<List<NasLibraryComic>> loadComics() async {
     final bytes = await _withClient((client) => client.readBytes(_indexPath));
     if (bytes == null) {
@@ -178,7 +280,11 @@ class NasLibraryService {
     final existing = LocalManager().find(comic.id, type);
     final baseDirectory = await _findLocalDirectory(comic, existing);
     final base = Directory(baseDirectory);
-    await base.create(recursive: true);
+    final staging = Directory(
+      '${base.path}.venera-download-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    final manifest = await _loadManifest();
+    await staging.create(recursive: true);
 
     final session = openSession();
     final remoteFiles = <String>[];
@@ -221,9 +327,15 @@ class NasLibraryService {
         if (bytes == null || bytes.isEmpty) {
           throw StateError('NAS file not found: $relative');
         }
-        final localFile = File(FilePath.join(base.path, relative));
-        await localFile.parent.create(recursive: true);
-        await localFile.writeAsBytes(bytes, flush: true);
+        final expected = manifest[joinRemotePath([comic.directory, relative])];
+        if (expected != null &&
+            (bytes.length != expected.size ||
+                sha256.convert(bytes).toString() != expected.hash)) {
+          throw StateError('NAS file checksum mismatch: $relative');
+        }
+        final stagedFile = File(FilePath.join(staging.path, relative));
+        await stagedFile.parent.create(recursive: true);
+        await stagedFile.writeAsBytes(bytes, flush: true);
         onProgress?.call(index + 1, files.length, relative);
       }
 
@@ -244,12 +356,36 @@ class NasLibraryService {
         downloadedChapters: allDownloadedChapters,
         createdAt: comic.createdAt ?? DateTime.now(),
       );
-      await LocalManager().add(localComic);
+      final install = await NasFileInstall.begin(staging, base, files);
+      try {
+        await LocalManager().add(localComic);
+      } catch (_) {
+        await install.rollback();
+        rethrow;
+      }
+      await install.finish();
       final persisted = LocalManager().find(comic.id, type) ?? localComic;
-      await NasManager.instance.markComicSynced(connection.id, persisted);
+      try {
+        await NasManager.instance.markComicSynced(connection.id, persisted);
+      } catch (error, stack) {
+        Log.error(
+          'NAS',
+          'Downloaded comic, but could not save its sync marker: $error',
+          stack,
+        );
+      }
       return persisted;
     } finally {
       await session.close();
+      try {
+        if (await staging.exists()) await staging.delete(recursive: true);
+      } catch (error, stack) {
+        Log.error(
+          'NAS',
+          'Could not remove NAS download staging files: $error',
+          stack,
+        );
+      }
     }
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +39,9 @@ bool _requireSqlite() {
     return true;
   }
   // ignore: avoid_print
-  print('SKIPPED (sqlite3 native library unavailable: $_sqliteUnavailableReason)');
+  print(
+    'SKIPPED (sqlite3 native library unavailable: $_sqliteUnavailableReason)',
+  );
   return false;
 }
 
@@ -93,7 +96,10 @@ void main() {
         name: 'Daily ranking scan',
         schedule: ScheduleSpec.weekly(weekdays: [1, 5], hour: 2, minute: 15),
         enabled: true,
-        config: {'sources': <String>['a', 'b'], 'limit': 20},
+        config: {
+          'sources': <String>['a', 'b'],
+          'limit': 20,
+        },
         retry: const TaskRetryPolicy(maxAttempts: 3),
         sortOrder: 2,
         createdAt: DateTime(2025, 1, 1, 8, 0),
@@ -144,9 +150,15 @@ void main() {
         return;
       }
       final store = SchedulerStore();
-      store.saveTask(_simpleTask('b', sortOrder: 1, createdAt: DateTime(2025, 1, 1)));
-      store.saveTask(_simpleTask('a', sortOrder: 0, createdAt: DateTime(2025, 1, 2)));
-      store.saveTask(_simpleTask('c', sortOrder: 1, createdAt: DateTime(2025, 1, 3)));
+      store.saveTask(
+        _simpleTask('b', sortOrder: 1, createdAt: DateTime(2025, 1, 1)),
+      );
+      store.saveTask(
+        _simpleTask('a', sortOrder: 0, createdAt: DateTime(2025, 1, 2)),
+      );
+      store.saveTask(
+        _simpleTask('c', sortOrder: 1, createdAt: DateTime(2025, 1, 3)),
+      );
       expect(store.loadTasks().map((t) => t.id), ['a', 'b', 'c']);
     });
 
@@ -168,7 +180,9 @@ void main() {
       }
       final store = SchedulerStore();
       store.saveTask(_simpleTask('a'));
-      store.insertRun(TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1)));
+      store.insertRun(
+        TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1)),
+      );
       expect(store.countRuns('a'), 1);
       store.deleteTask('a');
       expect(store.countTasks(), 0);
@@ -192,7 +206,19 @@ void main() {
         'INSERT INTO scheduled_tasks (id, type_key, name, enabled, schedule, '
         'config, retry, sort_order, created_at, last_state, '
         'consecutive_failures) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        ['bad', 'recorder', 'Bad', 1, '{not json', '{}', '{}', 1, 0, 'never', 0],
+        [
+          'bad',
+          'recorder',
+          'Bad',
+          1,
+          '{not json',
+          '{}',
+          '{}',
+          1,
+          0,
+          'never',
+          0,
+        ],
       );
       raw.dispose();
 
@@ -243,10 +269,9 @@ void main() {
       }
       final store = SchedulerStore();
       for (var i = 0; i < 5; i++) {
-        store.insertRun(TaskRunRecord(
-          taskId: 'a',
-          startedAt: DateTime(2025, 1, 1, 10, i),
-        ));
+        store.insertRun(
+          TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1, 10, i)),
+        );
       }
       final all = store.loadRuns(taskId: 'a');
       expect(all.length, 5);
@@ -261,14 +286,12 @@ void main() {
       }
       final store = SchedulerStore();
       for (var i = 0; i < 10; i++) {
-        store.insertRun(TaskRunRecord(
-          taskId: 'a',
-          startedAt: DateTime(2025, 1, 1, 10, i),
-        ));
-        store.insertRun(TaskRunRecord(
-          taskId: 'b',
-          startedAt: DateTime(2025, 1, 1, 11, i),
-        ));
+        store.insertRun(
+          TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1, 10, i)),
+        );
+        store.insertRun(
+          TaskRunRecord(taskId: 'b', startedAt: DateTime(2025, 1, 1, 11, i)),
+        );
       }
       store.pruneRuns(keepPerTask: 3);
       expect(store.countRuns('a'), 3);
@@ -282,8 +305,12 @@ void main() {
         return;
       }
       final store = SchedulerStore();
-      store.insertRun(TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1)));
-      store.insertRun(TaskRunRecord(taskId: 'b', startedAt: DateTime(2025, 1, 1)));
+      store.insertRun(
+        TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1)),
+      );
+      store.insertRun(
+        TaskRunRecord(taskId: 'b', startedAt: DateTime(2025, 1, 1)),
+      );
       store.clearRuns('a');
       expect(store.countRuns('a'), 0);
       expect(store.countRuns('b'), 1);
@@ -295,7 +322,9 @@ void main() {
       }
       final store = SchedulerStore();
       store.saveTask(_simpleTask('old'));
-      store.insertRun(TaskRunRecord(taskId: 'old', startedAt: DateTime(2025, 1, 1)));
+      store.insertRun(
+        TaskRunRecord(taskId: 'old', startedAt: DateTime(2025, 1, 1)),
+      );
       store.replaceAll([_simpleTask('new1'), _simpleTask('new2')]);
       expect(store.loadTasks().map((t) => t.id), ['new1', 'new2']);
       expect(store.countRuns('old'), 0);
@@ -316,13 +345,15 @@ void main() {
       final done = store.insertRun(
         TaskRunRecord(taskId: 'a', startedAt: DateTime(2025, 1, 1)),
       );
-      store.finishRun(TaskRunRecord(
-        taskId: 'a',
-        startedAt: DateTime(2025, 1, 1),
-        rowId: done,
-        state: TaskRunState.success,
-        message: 'done',
-      ));
+      store.finishRun(
+        TaskRunRecord(
+          taskId: 'a',
+          startedAt: DateTime(2025, 1, 1),
+          rowId: done,
+          state: TaskRunState.success,
+          message: 'done',
+        ),
+      );
 
       expect(store.closeInterruptedRuns(), 1);
       // Idempotent: a second startup finds nothing left to close.
@@ -382,7 +413,10 @@ void main() {
       if (!_requireSqlite()) {
         return;
       }
-      await SchedulerEngine().init(databasePath: databasePath, startTimer: false);
+      await SchedulerEngine().init(
+        databasePath: databasePath,
+        startTimer: false,
+      );
       final created = SchedulerEngine().createTask(
         typeKey: 'nope',
         name: 'x',
@@ -397,7 +431,10 @@ void main() {
         return;
       }
       TaskRunnerRegistry.register(_RecordingRunner());
-      await SchedulerEngine().init(databasePath: databasePath, startTimer: false);
+      await SchedulerEngine().init(
+        databasePath: databasePath,
+        startTimer: false,
+      );
       final created = SchedulerEngine().createTask(
         typeKey: 'recorder',
         name: 'x',
@@ -446,9 +483,11 @@ void main() {
         schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
       )!;
       // Force it to be due.
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+      engine.updateTask(
+        created.copyWith(
+          nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      );
       // updateTask keeps the pending slot when the schedule is unchanged.
       expect(engine.findTask(created.id)!.isDue, isTrue);
 
@@ -486,9 +525,11 @@ void main() {
           initialDelay: Duration(minutes: 1),
         ),
       )!;
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+      engine.updateTask(
+        created.copyWith(
+          nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      );
       await engine.runDueTasks();
 
       final after = engine.findTask(created.id)!;
@@ -498,28 +539,33 @@ void main() {
       expect(engine.runsFor(created.id).first.state, TaskRunState.failed);
     });
 
-    test('a runner that throws is recorded as failed, not propagated', () async {
-      if (!_requireSqlite()) {
-        return;
-      }
-      TaskRunnerRegistry.register(_ThrowingRunner());
-      final engine = SchedulerEngine();
-      await engine.init(databasePath: databasePath, startTimer: false);
-      final created = engine.createTask(
-        typeKey: 'thrower',
-        name: 'Thrower',
-        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
-      )!;
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+    test(
+      'a runner that throws is recorded as failed, not propagated',
+      () async {
+        if (!_requireSqlite()) {
+          return;
+        }
+        TaskRunnerRegistry.register(_ThrowingRunner());
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        final created = engine.createTask(
+          typeKey: 'thrower',
+          name: 'Thrower',
+          schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+        )!;
+        engine.updateTask(
+          created.copyWith(
+            nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
 
-      await engine.runDueTasks();
+        await engine.runDueTasks();
 
-      final after = engine.findTask(created.id)!;
-      expect(after.lastState, TaskRunState.failed);
-      expect(after.lastError, contains('kaboom'));
-    });
+        final after = engine.findTask(created.id)!;
+        expect(after.lastState, TaskRunState.failed);
+        expect(after.lastError, contains('kaboom'));
+      },
+    );
 
     test('a runner requesting cancellation is recorded as cancelled', () async {
       if (!_requireSqlite()) {
@@ -533,41 +579,48 @@ void main() {
         name: 'Cancelling',
         schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
       )!;
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+      engine.updateTask(
+        created.copyWith(
+          nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      );
 
       await engine.runDueTasks();
 
       expect(engine.findTask(created.id)!.lastState, TaskRunState.cancelled);
     });
 
-    test('an unknown persisted type is marked failed rather than crashing', () async {
-      if (!_requireSqlite()) {
-        return;
-      }
-      final engine = SchedulerEngine();
-      await engine.init(databasePath: databasePath, startTimer: false);
-      // Persist a task whose runner is not registered.
-      SchedulerStore().saveTask(TaskDefinition(
-        id: 'orphan',
-        typeKey: 'ghost',
-        name: 'Orphan',
-        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
-        createdAt: DateTime.now(),
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+    test(
+      'an unknown persisted type is marked failed rather than crashing',
+      () async {
+        if (!_requireSqlite()) {
+          return;
+        }
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        // Persist a task whose runner is not registered.
+        SchedulerStore().saveTask(
+          TaskDefinition(
+            id: 'orphan',
+            typeKey: 'ghost',
+            name: 'Orphan',
+            schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+            createdAt: DateTime.now(),
+            nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
 
-      // Reload so the engine sees it.
-      engine.close();
-      await engine.init(databasePath: databasePath, startTimer: false);
-      expect(engine.findTask('orphan'), isNotNull);
+        // Reload so the engine sees it.
+        engine.close();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        expect(engine.findTask('orphan'), isNotNull);
 
-      await engine.runDueTasks();
-      final after = engine.findTask('orphan')!;
-      expect(after.lastState, TaskRunState.failed);
-      expect(after.lastError, contains('Unknown task type'));
-    });
+        await engine.runDueTasks();
+        final after = engine.findTask('orphan')!;
+        expect(after.lastState, TaskRunState.failed);
+        expect(after.lastError, contains('Unknown task type'));
+      },
+    );
 
     test('disabled tasks are never due', () async {
       if (!_requireSqlite()) {
@@ -593,48 +646,54 @@ void main() {
       expect(engine.findTask(created.id)!.nextRunAt, isNull);
     });
 
-    test('runOnStart brings a future slot forward when the engine restarts',
-        () async {
-      if (!_requireSqlite()) {
-        return;
-      }
-      final runner = _RecordingRunner();
-      TaskRunnerRegistry.register(runner);
-      final engine = SchedulerEngine();
-      await engine.init(databasePath: databasePath, startTimer: false);
+    test(
+      'runOnStart brings a future slot forward when the engine restarts',
+      () async {
+        if (!_requireSqlite()) {
+          return;
+        }
+        final runner = _RecordingRunner();
+        TaskRunnerRegistry.register(runner);
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
 
-      // A daily task: its next slot is hours away, so without runOnStart an app
-      // session that starts and ends before then would never run it.
-      final created = engine.createTask(
-        typeKey: 'recorder',
-        name: 'On start',
-        schedule: ScheduleSpec.daily(hour: 3, minute: 30),
-        runOnStart: true,
-      )!;
-      expect(created.runOnStart, isTrue);
-      expect(created.nextRunAt!.isAfter(DateTime.now()), isTrue);
-      expect(engine.findTask(created.id)!.isDue, isFalse);
+        // A daily task: its next slot is hours away, so without runOnStart an app
+        // session that starts and ends before then would never run it.
+        final created = engine.createTask(
+          typeKey: 'recorder',
+          name: 'On start',
+          schedule: ScheduleSpec.daily(hour: 3, minute: 30),
+          runOnStart: true,
+        )!;
+        expect(created.runOnStart, isTrue);
+        expect(created.nextRunAt!.isAfter(DateTime.now()), isTrue);
+        expect(engine.findTask(created.id)!.isDue, isFalse);
 
-      // Simulate an app restart.
-      engine.close();
-      await engine.init(databasePath: databasePath, startTimer: false);
+        // Simulate an app restart.
+        engine.close();
+        await engine.init(databasePath: databasePath, startTimer: false);
 
-      final reloaded = engine.findTask(created.id)!;
-      expect(reloaded.runOnStart, isTrue, reason: 'flag must survive restart');
-      expect(
-        reloaded.isDue,
-        isTrue,
-        reason: 'runOnStart should mark the task due at startup',
-      );
+        final reloaded = engine.findTask(created.id)!;
+        expect(
+          reloaded.runOnStart,
+          isTrue,
+          reason: 'flag must survive restart',
+        );
+        expect(
+          reloaded.isDue,
+          isTrue,
+          reason: 'runOnStart should mark the task due at startup',
+        );
 
-      await engine.runDueTasks();
-      expect(runner.runCount, 1);
-      // Afterwards it returns to its normal calendar slot.
-      final after = engine.findTask(created.id)!;
-      expect(after.lastState, TaskRunState.success);
-      expect(after.nextRunAt!.hour, 3);
-      expect(after.nextRunAt!.isAfter(DateTime.now()), isTrue);
-    });
+        await engine.runDueTasks();
+        expect(runner.runCount, 1);
+        // Afterwards it returns to its normal calendar slot.
+        final after = engine.findTask(created.id)!;
+        expect(after.lastState, TaskRunState.success);
+        expect(after.nextRunAt!.hour, 3);
+        expect(after.nextRunAt!.isAfter(DateTime.now()), isTrue);
+      },
+    );
 
     test('without runOnStart a future slot stays in the future', () async {
       if (!_requireSqlite()) {
@@ -674,9 +733,11 @@ void main() {
         runOnStart: true,
       )!;
       // Make it overdue as if the app had been closed past its slot.
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(hours: 3)),
-      ));
+      engine.updateTask(
+        created.copyWith(
+          nextRunAt: DateTime.now().subtract(const Duration(hours: 3)),
+        ),
+      );
 
       engine.close();
       await engine.init(databasePath: databasePath, startTimer: false);
@@ -723,9 +784,11 @@ void main() {
         name: 'Doomed',
         schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
       )!;
-      engine.updateTask(created.copyWith(
-        nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
-      ));
+      engine.updateTask(
+        created.copyWith(
+          nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      );
       await engine.runDueTasks();
       expect(engine.runsFor(created.id), isNotEmpty);
 
@@ -735,20 +798,45 @@ void main() {
       expect(SchedulerStore().loadTask(created.id), isNull);
     });
 
+    test('a deleted running task is not recreated on completion', () async {
+      if (!_requireSqlite()) return;
+      final runner = _BlockingRunner();
+      TaskRunnerRegistry.register(runner);
+      final engine = SchedulerEngine();
+      await engine.init(databasePath: databasePath, startTimer: false);
+      final created = engine.createTask(
+        typeKey: 'recorder',
+        name: 'Running task',
+        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+      )!;
+
+      final run = engine.runNow(created.id);
+      await runner.started.future;
+      engine.deleteTask(created.id);
+      runner.release.complete();
+      await run;
+
+      expect(engine.findTask(created.id), isNull);
+      expect(SchedulerStore().loadTask(created.id), isNull);
+      expect(engine.runsFor(created.id), isEmpty);
+    });
+
     test('recovers a run interrupted by shutdown', () async {
       if (!_requireSqlite()) {
         return;
       }
       final engine = SchedulerEngine();
       await engine.init(databasePath: databasePath, startTimer: false);
-      SchedulerStore().saveTask(TaskDefinition(
-        id: 'stuck',
-        typeKey: 'recorder',
-        name: 'Stuck',
-        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
-        createdAt: DateTime.now(),
-        lastState: TaskRunState.running,
-      ));
+      SchedulerStore().saveTask(
+        TaskDefinition(
+          id: 'stuck',
+          typeKey: 'recorder',
+          name: 'Stuck',
+          schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+          createdAt: DateTime.now(),
+          lastState: TaskRunState.running,
+        ),
+      );
       engine.close();
       await engine.init(databasePath: databasePath, startTimer: false);
 
@@ -845,6 +933,18 @@ class _RecordingRunner extends SchedulableRunner {
       message: 'did the thing',
       summary: {'ran': runCount},
     );
+  }
+}
+
+class _BlockingRunner extends _RecordingRunner {
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<TaskRunOutcome> run(TaskRunContext context) async {
+    started.complete();
+    await release.future;
+    return super.run(context);
   }
 }
 

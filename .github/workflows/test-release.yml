@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag
         required: true
-        default: v2.0.2
+        default: v2.0.3
 
 concurrency:
   group: test-release-${{ inputs.tag }}
@@ -258,9 +258,10 @@ jobs:
           notes="$(cat <<EOF
           Venera Netmatic ${TAG#v}
 
-          - 修复 Linux 窗口四周出现黑边的问题。
-          - 修复桌面端 Venera Netmatic 标题越过侧边栏分隔线的问题。
-          - 修复从 NAS 阅读漫画时阅读页仍保留桌面侧边栏的问题。
+          - 修复压缩包下载、续传和校验；服务器支持时并行分段下载，不兼容时自动回退。
+          - NAS 同步按文件校验，并在传输或安装失败时保留、恢复旧文件。
+          - 修复网络日志泄漏请求内容、账号缓存混用和 Cookie 校验问题。
+          - 修复定时任务删除后在运行结束时被重新写回的问题。
 
           - Android：ARM64、ARMv7、x86_64 和通用 APK
           - iOS：unsigned IPA，需要使用 Xcode 签名后安装
