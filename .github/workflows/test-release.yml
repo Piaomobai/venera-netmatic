@@ -59,6 +59,11 @@ jobs:
           sudo rm -rf "$ANDROID_HOME/system-images" || true
           sudo rm -rf "$ANDROID_HOME/ndk"/* || true
           sudo rm -rf "$ANDROID_HOME/.temp" || true
+          # Hosted runners include toolchains unrelated to this Android build.
+          # Three native Rust targets and the Android resource merger need more
+          # free space than removing old Android SDK components alone provides.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/chromium /usr/share/swift
           sudo apt-get clean
           echo "Disk usage after cleanup:"
           df -h
@@ -244,6 +249,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
@@ -255,13 +261,15 @@ jobs:
         run: |
           set -euo pipefail
           title="Venera Netmatic ${TAG#v}"
+          release_notes="$(awk -v prefix="## ${TAG#v}+" 'index($0, prefix) == 1 { found = 1; next } found && /^## / { exit } found { print }' CHANGELOG.md)"
+          if [[ -z "${release_notes//[[:space:]]/}" ]]; then
+            echo "::error::No changelog entry found for $TAG."
+            exit 1
+          fi
           notes="$(cat <<EOF
           Venera Netmatic ${TAG#v}
 
-          - 修复压缩包下载、续传和校验；服务器支持时并行分段下载，不兼容时自动回退。
-          - NAS 同步按文件校验，并在传输或安装失败时保留、恢复旧文件。
-          - 修复网络日志泄漏请求内容、账号缓存混用和 Cookie 校验问题。
-          - 修复定时任务删除后在运行结束时被重新写回的问题。
+          ${release_notes}
 
           - Android：ARM64、ARMv7、x86_64 和通用 APK
           - iOS：unsigned IPA，需要使用 Xcode 签名后安装
