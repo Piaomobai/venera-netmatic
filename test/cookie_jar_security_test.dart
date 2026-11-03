@@ -17,6 +17,36 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test(
+    'logout revokes owned cookies after restart and preserves other hosts',
+    () {
+      final first = Uri.parse('https://source.example/');
+      final second = Uri.parse('https://other.example/');
+      jar.saveFromResponse(first, [
+        Cookie('session', 'private'),
+      ], sourceKey: 'source');
+      jar.saveFromResponse(second, [
+        Cookie('session', 'other'),
+      ], sourceKey: 'other');
+      jar.dispose();
+      jar = CookieJarSql('${directory.path}/cookies.db');
+      jar.deleteForSource('source');
+      expect(jar.loadForRequestCookieHeader(first), isEmpty);
+      expect(jar.loadForRequestCookieHeader(second), 'session=other');
+    },
+  );
+
+  test('cookies first used from a GUI profile gain source ownership', () {
+    final uri = Uri.parse('https://source.example/');
+    jar.saveFromResponse(uri, [Cookie('session', 'legacy')]);
+    expect(
+      jar.loadForRequestCookieHeader(uri, sourceKey: 'source'),
+      'session=legacy',
+    );
+    jar.deleteForSource('source');
+    expect(jar.loadForRequestCookieHeader(uri), isEmpty);
+  });
+
   test('Secure cookies are never sent over HTTP', () {
     final cookie = Cookie('session', 'secret')..secure = true;
     jar.saveFromResponse(Uri.parse('https://example.com/'), [cookie]);

@@ -2,6 +2,8 @@ import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/comic_type.dart';
 import 'package:venera_netmatic/foundation/local.dart';
 import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/async_control.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 import 'package:venera_netmatic/network/download.dart';
 
 /// What still has to be fetched, independent of any particular comic.
@@ -181,14 +183,17 @@ abstract final class ComicDownloadPlanner {
   /// Fetches comic details, or null when the source cannot provide them.
   static Future<ComicDetails?> loadDetails(
     ComicSource source,
-    String comicId,
-  ) async {
+    String comicId, {
+    TaskRunContext? context,
+  }) async {
     final load = source.loadComicInfo;
     if (load == null) {
       return null;
     }
     try {
-      final res = await load(comicId);
+      void check() => context?.throwIfCancelled();
+      await waitCancellable(source.ensureInitialized(), checkCancelled: check);
+      final res = await waitCancellable(load(comicId), checkCancelled: check);
       if (res.error) {
         Log.error(
           'Download',
@@ -198,6 +203,8 @@ abstract final class ComicDownloadPlanner {
         return null;
       }
       return res.dataOrNull;
+    } on TaskCancelledException {
+      rethrow;
     } catch (e, s) {
       Log.error('Download', 'Failed to load comic $comicId: $e', s);
       return null;

@@ -329,7 +329,11 @@ class NasManager with ChangeNotifier {
     }
   }
 
-  Future<NasSyncResult> syncAll(String connectionId) async {
+  Future<NasSyncResult> syncAll(
+    String connectionId, {
+    void Function()? checkCancelled,
+  }) async {
+    checkCancelled?.call();
     if (_isSyncing) throw StateError('A NAS sync is already running');
     final connection = find(connectionId);
     if (connection == null) throw StateError('NAS connection not found');
@@ -353,12 +357,14 @@ class NasManager with ChangeNotifier {
     final client = createNasRemoteClient(connection);
     try {
       await client.connect();
-      final files = await _libraryFiles();
+      checkCancelled?.call();
+      final files = await _libraryFiles(checkCancelled: checkCancelled);
       final comics = LocalManager().getComics(LocalSortType.timeDesc);
       final comicsWithFiles = <String, LocalComic>{};
       final stats = <File, FileStat>{};
       var overallBytes = 0;
       for (final file in files) {
+        checkCancelled?.call();
         final stat = await file.stat();
         stats[file] = stat;
         overallBytes += stat.size;
@@ -384,6 +390,7 @@ class NasManager with ChangeNotifier {
         startedAt: startedAt,
       );
       for (final file in files) {
+        checkCancelled?.call();
         scanned++;
         final relative = _relativeLocalPath(file.path);
         final stat = stats[file]!;
@@ -396,8 +403,13 @@ class NasManager with ChangeNotifier {
           'library',
           relative,
         ]);
-        final digest = await computeNasFileSha256(file);
+        final digest = await computeNasFileSha256(
+          file,
+          checkCancelled: checkCancelled,
+        );
+        checkCancelled?.call();
         final remoteSize = await client.fileSize(remote);
+        checkCancelled?.call();
         if (manifest[relative]?.matches(digest, stat.size) == true &&
             remoteSize == stat.size) {
           skipped++;
@@ -455,6 +467,7 @@ class NasManager with ChangeNotifier {
         completedBytes += stat.size;
         manifest[relative] = _NasManifestEntry(sha256: digest, size: stat.size);
         await _writeRemoteManifest(client, connection, manifest);
+        checkCancelled?.call();
         _setProgress(
           scanned: scanned,
           totalFiles: files.length,
@@ -483,11 +496,13 @@ class NasManager with ChangeNotifier {
         uploadedBytes: uploadedBytes,
         startedAt: startedAt,
       );
+      checkCancelled?.call();
       await _uploadMetadata(
         client,
         connection,
         syncedComics: comicsWithFiles.values,
       );
+      checkCancelled?.call();
       await markComicsSynced(connection.id, comicsWithFiles.values);
       return NasSyncResult(
         uploadedFiles: uploaded,
@@ -510,7 +525,9 @@ class NasManager with ChangeNotifier {
     String connectionId,
     LocalComic comic, {
     NasProgress? onProgress,
+    void Function()? checkCancelled,
   }) async {
+    checkCancelled?.call();
     if (_isSyncing) throw StateError('A NAS sync is already running');
     final connection = find(connectionId);
     if (connection == null) throw StateError('NAS connection not found');
@@ -537,12 +554,14 @@ class NasManager with ChangeNotifier {
     notifyListeners();
     try {
       await client.connect();
+      checkCancelled?.call();
       final manifest = await _readRemoteManifest(client, connection);
       final files = <File>[];
       await for (final entity in base.list(
         recursive: true,
         followLinks: false,
       )) {
+        checkCancelled?.call();
         if (entity is File && !_isNasTransferArtifact(entity.path)) {
           files.add(entity);
         }
@@ -553,6 +572,7 @@ class NasManager with ChangeNotifier {
       final stats = <File, FileStat>{};
       var overallBytes = 0;
       for (final file in files) {
+        checkCancelled?.call();
         final stat = await file.stat();
         stats[file] = stat;
         overallBytes += stat.size;
@@ -563,6 +583,7 @@ class NasManager with ChangeNotifier {
       var skipped = 0;
       final startedAt = DateTime.now();
       for (var index = 0; index < files.length; index++) {
+        checkCancelled?.call();
         final entity = files[index];
         final stat = stats[entity]!;
         final relative = entity.path
@@ -576,8 +597,13 @@ class NasManager with ChangeNotifier {
           relative,
         ]);
         final manifestKey = joinRemotePath([comic.directory, relative]);
-        final digest = await computeNasFileSha256(entity);
+        final digest = await computeNasFileSha256(
+          entity,
+          checkCancelled: checkCancelled,
+        );
+        checkCancelled?.call();
         final remoteSize = await client.fileSize(remote);
+        checkCancelled?.call();
         if (manifest[manifestKey]?.matches(digest, stat.size) == true &&
             remoteSize == stat.size) {
           skipped++;
@@ -639,6 +665,7 @@ class NasManager with ChangeNotifier {
           size: stat.size,
         );
         await _writeRemoteManifest(client, connection, manifest);
+        checkCancelled?.call();
         _setProgress(
           scanned: index + 1,
           totalFiles: files.length,
@@ -666,7 +693,9 @@ class NasManager with ChangeNotifier {
         uploadedBytes: uploadedBytes,
         startedAt: startedAt,
       );
+      checkCancelled?.call();
       await _uploadMetadata(client, connection, syncedComics: [comic]);
+      checkCancelled?.call();
       await markComicSynced(connection.id, comic);
     } catch (e) {
       _lastError = e;
@@ -680,11 +709,12 @@ class NasManager with ChangeNotifier {
     }
   }
 
-  Future<List<File>> _libraryFiles() async {
+  Future<List<File>> _libraryFiles({void Function()? checkCancelled}) async {
     final root = Directory(LocalManager().path);
     if (!await root.exists()) return const [];
     final result = <File>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
+      checkCancelled?.call();
       if (entity is File && !_isNasTransferArtifact(entity.path)) {
         result.add(entity);
       }
@@ -885,8 +915,17 @@ class NasManager with ChangeNotifier {
 }
 
 @visibleForTesting
-Future<String> computeNasFileSha256(File file) async =>
-    (await sha256.bind(file.openRead()).first).toString();
+Future<String> computeNasFileSha256(
+  File file, {
+  void Function()? checkCancelled,
+}) async {
+  checkCancelled?.call();
+  final chunks = file.openRead().map((chunk) {
+    checkCancelled?.call();
+    return chunk;
+  });
+  return (await sha256.bind(chunks).first).toString();
+}
 
 class _NasManifestEntry {
   const _NasManifestEntry({required this.sha256, required this.size});

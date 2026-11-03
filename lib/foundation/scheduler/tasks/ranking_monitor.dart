@@ -1,4 +1,5 @@
 import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
+import 'package:venera_netmatic/foundation/async_control.dart';
 import 'package:venera_netmatic/foundation/comic_type.dart';
 import 'package:venera_netmatic/foundation/favorites.dart';
 import 'package:venera_netmatic/foundation/log.dart';
@@ -152,7 +153,11 @@ class RankingMonitorRunner extends SchedulableRunner {
     // invoking a loader before they finish leaves source globals undefined.
     // Manual runs appeared to work only because enough time had elapsed.
     try {
-      await Future.wait(sources.map((source) => source.ensureInitialized()));
+      await context.wait(
+        Future.wait(sources.map((source) => source.ensureInitialized())),
+      );
+    } on TaskCancelledException {
+      rethrow;
     } catch (e, s) {
       Log.error('Ranking', 'Comic source initialization failed: $e', s);
       return TaskRunOutcome(
@@ -201,6 +206,10 @@ class RankingMonitorRunner extends SchedulableRunner {
           option,
           pagesPerOption,
           logLabel: '${source.key}/$option',
+          checkCancelled: context.throwIfCancelled,
+          onPage: (page) => context.reportProgress(
+            message: '${source.name} / $option / page $page',
+          ),
         );
         if (scan.error != null) {
           failedOptions++;
@@ -209,6 +218,7 @@ class RankingMonitorRunner extends SchedulableRunner {
         }
 
         for (final comic in scan.comics) {
+          context.throwIfCancelled();
           comicsSeen++;
           if (!discoveredIds.add('${source.key}\u0000${comic.id}')) {
             continue;
@@ -233,7 +243,9 @@ class RankingMonitorRunner extends SchedulableRunner {
         );
 
         if (throttleMs > 0) {
-          await Future.delayed(Duration(milliseconds: throttleMs));
+          await context.wait(
+            Future<void>.delayed(Duration(milliseconds: throttleMs)),
+          );
         }
       }
 
@@ -307,7 +319,11 @@ class RankingMonitorRunner extends SchedulableRunner {
     }
 
     return TaskRunOutcome(
-      success: true,
+      success: failedOptions == 0 && followUp.detailFailures == 0,
+      error: failedOptions > 0 || followUp.detailFailures > 0
+          ? 'Some ranking requests or comic details failed'
+          : null,
+      requestRetry: failedOptions > 0 || followUp.detailFailures > 0,
       message: parts.join(', '),
       summary: summary,
     );
@@ -436,6 +452,9 @@ class RankingMonitorRunner extends SchedulableRunner {
     String option,
     int pages, {
     String logLabel = '',
+    void Function()? checkCancelled,
+    void Function(int page)? onPage,
+    Duration requestTimeout = const Duration(seconds: 60),
   }) async {
     final comics = <Comic>[];
     var pagesRead = 0;
@@ -443,7 +462,13 @@ class RankingMonitorRunner extends SchedulableRunner {
       final load = ranking.load;
       if (load != null) {
         for (var page = 1; page <= pages; page++) {
-          final res = await load(option, page);
+          checkCancelled?.call();
+          onPage?.call(page);
+          final res = await waitCancellable(
+            load(option, page),
+            checkCancelled: () => checkCancelled?.call(),
+            timeout: requestTimeout,
+          );
           pagesRead++;
           if (res.error) {
             return RankingOptionScan(
@@ -466,7 +491,13 @@ class RankingMonitorRunner extends SchedulableRunner {
         final loadNext = ranking.loadWithNext!;
         String? cursor;
         for (var page = 0; page < pages; page++) {
-          final res = await loadNext(option, cursor);
+          checkCancelled?.call();
+          onPage?.call(page + 1);
+          final res = await waitCancellable(
+            loadNext(option, cursor),
+            checkCancelled: () => checkCancelled?.call(),
+            timeout: requestTimeout,
+          );
           pagesRead++;
           if (res.error) {
             return RankingOptionScan(
@@ -485,7 +516,10 @@ class RankingMonitorRunner extends SchedulableRunner {
         }
       }
       return RankingOptionScan(comics, null, pagesRead: pagesRead);
+    } on TaskCancelledException {
+      rethrow;
     } catch (e, s) {
+      checkCancelled?.call();
       Log.error('Ranking', 'Failed to scan $logLabel: $e', s);
       return RankingOptionScan(comics, e.toString(), pagesRead: pagesRead);
     }
@@ -525,6 +559,7 @@ class RankingMonitorRunner extends SchedulableRunner {
       final details = await ComicDownloadPlanner.loadDetails(
         item.source,
         item.comic.id,
+        context: context,
       );
       if (details == null) {
         // Not remembered: an unreadable comic has to be retried, and doing
@@ -571,7 +606,9 @@ class RankingMonitorRunner extends SchedulableRunner {
       );
 
       if (throttleMs > 0) {
-        await Future.delayed(Duration(milliseconds: throttleMs));
+        await context.wait(
+          Future<void>.delayed(Duration(milliseconds: throttleMs)),
+        );
       }
     }
 

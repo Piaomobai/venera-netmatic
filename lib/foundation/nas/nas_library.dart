@@ -275,7 +275,9 @@ class NasLibraryService {
   Future<LocalComic> downloadComic(
     NasLibraryComic comic, {
     NasLibraryDownloadProgress? onProgress,
+    void Function()? checkCancelled,
   }) async {
+    checkCancelled?.call();
     final type = comic.comicType;
     final existing = LocalManager().find(comic.id, type);
     final baseDirectory = await _findLocalDirectory(comic, existing);
@@ -284,6 +286,7 @@ class NasLibraryService {
       '${base.path}.venera-download-${DateTime.now().microsecondsSinceEpoch}',
     );
     final manifest = await _loadManifest();
+    checkCancelled?.call();
     await staging.create(recursive: true);
 
     final session = openSession();
@@ -296,6 +299,7 @@ class NasLibraryService {
 
       if (comic.chapters == null) {
         remoteFiles.addAll(await session.imagePaths(comic));
+        checkCancelled?.call();
       } else {
         // Older index files did not always persist downloadedChapters.  In
         // that case probe all chapter directories and keep only those that
@@ -304,7 +308,9 @@ class NasLibraryService {
             ? comic.downloadedChapters
             : comic.chapters!.ids.toList();
         for (final chapterId in chapterIds) {
+          checkCancelled?.call();
           final images = await session.imagePaths(comic, chapterId: chapterId);
+          checkCancelled?.call();
           if (images.isEmpty) continue;
           downloadedChapters.add(chapterId);
           remoteFiles.addAll(images);
@@ -322,8 +328,10 @@ class NasLibraryService {
       }
 
       for (var index = 0; index < files.length; index++) {
+        checkCancelled?.call();
         final relative = files[index];
         final bytes = await session.readComicFile(comic, relative);
+        checkCancelled?.call();
         if (bytes == null || bytes.isEmpty) {
           throw StateError('NAS file not found: $relative');
         }
@@ -356,6 +364,7 @@ class NasLibraryService {
         downloadedChapters: allDownloadedChapters,
         createdAt: comic.createdAt ?? DateTime.now(),
       );
+      checkCancelled?.call();
       final install = await NasFileInstall.begin(staging, base, files);
       try {
         await LocalManager().add(localComic);

@@ -24,6 +24,9 @@ import 'package:path/path.dart' as path_util;
 import 'file_downloader.dart';
 
 abstract class DownloadTask with ChangeNotifier {
+  /// Completes only after all writes and optional NAS finalization settle.
+  Future<void> get settled => Future<void>.value();
+
   /// 0-1
   double get progress;
 
@@ -62,6 +65,8 @@ abstract class DownloadTask with ChangeNotifier {
     switch (json["type"]) {
       case "ImagesDownloadTask":
         return ImagesDownloadTask.fromJson(json);
+      case "ArchiveDownloadTask":
+        return ArchiveDownloadTask.fromJson(json);
       default:
         return null;
     }
@@ -79,6 +84,9 @@ abstract class DownloadTask with ChangeNotifier {
 }
 
 class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
+  Future<void>? _activeRun;
+  @override
+  Future<void> get settled => _activeRun ?? Future<void>.value();
   final ComicSource source;
 
   final String comicId;
@@ -195,11 +203,13 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   int _chapter = 0;
 
   var tasks = <int, _ImageDownloadWrapper>{};
+  final Set<_ImageDownloadWrapper> _inFlightImages = {};
 
   int get _maxConcurrentTasks =>
       (appdata.settings["downloadThreads"] as num).toInt();
 
   void _scheduleTasks() {
+    if (!_isRunning || _chapter >= _images!.length) return;
     var images = _images![_images!.keys.elementAt(_chapter)]!;
     var downloading = 0;
     for (var i = _index; i < images.length; i++) {
@@ -238,7 +248,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         i,
       );
       tasks[i] = task;
+      _inFlightImages.add(task);
       task.wait().then((task) {
+        _inFlightImages.remove(task);
         if (task.isComplete) {
           _scheduleTasks();
         }
@@ -248,7 +260,24 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   }
 
   @override
-  void resume() async {
+  void resume() {
+    if (_activeRun != null || _isRunning) return;
+    _activeRun = _resume()
+        .catchError((Object error, StackTrace stack) {
+          Log.error('Download', error, stack);
+          _setError('Error: $error');
+        })
+        .whenComplete(() async {
+          final pending = _inFlightImages.toList();
+          for (final image in pending) {
+            image.cancel();
+          }
+          await Future.wait(pending.map((image) => image.wait()));
+          _activeRun = null;
+        });
+  }
+
+  Future<void> _resume() async {
     if (_isRunning) return;
     _isError = false;
     _message = "Resuming...";
@@ -396,6 +425,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       await LocalManager().saveCurrentDownloadingTasks();
     }
 
+    if (!_isRunning) return;
     while (_chapter < _images!.length) {
       var images = _images![_images!.keys.elementAt(_chapter)]!;
       tasks.clear();
@@ -420,8 +450,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       _chapter++;
     }
 
-    if (!await _uploadToNasIfNeeded()) return;
-    LocalManager().completeTask(this);
+    if (!_isRunning || !await _uploadToNasIfNeeded()) return;
+    if (!_isRunning) return;
+    await LocalManager().completeTask(this);
     stopRecorder();
   }
 
@@ -433,6 +464,9 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       await NasManager.instance.uploadComicDirectory(
         nasConnectionId!,
         toLocalComic(),
+        checkCancelled: () {
+          if (!_isRunning) throw StateError('Download paused');
+        },
         onProgress: (sent, total) {
           _message =
               'Uploading to NAS: '
@@ -526,6 +560,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
 
   @override
   LocalComic toLocalComic() {
+    final previous = LocalManager().find(comicId, comicType);
     return LocalComic(
       id: comic!.id,
       title: title,
@@ -537,8 +572,12 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       chapters: comic!.chapters,
       cover: File(_cover!.split("file://").last).name,
       comicType: ComicType(source.key.hashCode),
-      downloadedChapters: chapters ?? comic?.chapters?.ids.toList() ?? [],
-      createdAt: DateTime.now(),
+      originalSourceKey: source.key,
+      downloadedChapters: <String>{
+        ...?previous?.downloadedChapters,
+        ...?chapters ?? comic?.chapters?.ids.toList(),
+      }.toList(),
+      createdAt: previous?.createdAt ?? DateTime.now(),
     );
   }
 
@@ -597,6 +636,7 @@ class _ImageDownloadWrapper {
   String? error;
 
   bool isCancelled = false;
+  bool _hasSettled = false;
 
   void cancel() {
     isCancelled = true;
@@ -606,7 +646,7 @@ class _ImageDownloadWrapper {
 
   var retry = 3;
 
-  void start() async {
+  Future<void> start() async {
     int lastBytes = 0;
     try {
       await for (var p in ImageDownloader.loadComicImageUnwrapped(
@@ -625,11 +665,11 @@ class _ImageDownloadWrapper {
           var file = saveTo.joinFile("$index${fileType.ext}");
           await file.writeAsBytes(p.imageBytes!);
           isComplete = true;
-          for (var c in completers) {
-            c.complete(this);
-          }
-          completers.clear();
+          break;
         }
+      }
+      if (!isComplete && !isCancelled) {
+        throw StateError('Image stream ended without image data');
       }
     } catch (e, s) {
       if (isCancelled) {
@@ -638,20 +678,23 @@ class _ImageDownloadWrapper {
       Log.error("Download", e.toString(), s);
       retry--;
       if (retry > 0) {
-        start();
+        await start();
         return;
       }
       error = e.toString();
-      for (var c in completers) {
-        if (!c.isCompleted) {
-          c.complete(this);
+    } finally {
+      if (isComplete || isCancelled || error != null) {
+        _hasSettled = true;
+        for (final c in completers) {
+          if (!c.isCompleted) c.complete(this);
         }
+        completers.clear();
       }
     }
   }
 
   Future<_ImageDownloadWrapper> wait() {
-    if (isComplete) {
+    if (_hasSettled) {
       return Future.value(this);
     }
     var c = Completer<_ImageDownloadWrapper>();
@@ -699,6 +742,9 @@ abstract mixin class _TransferSpeedMixin {
 }
 
 class ArchiveDownloadTask extends DownloadTask {
+  Future<void>? _activeRun;
+  @override
+  Future<void> get settled => _activeRun ?? Future<void>.value();
   final String archiveUrl;
 
   final ComicDetails comic;
@@ -818,7 +864,17 @@ class ArchiveDownloadTask extends DownloadTask {
       _expectedBytes == 0 ? 0 : _currentBytes / _expectedBytes;
 
   @override
-  void resume() async {
+  void resume() {
+    if (_activeRun != null || _isRunning) return;
+    _activeRun = _resume()
+        .catchError((Object error, StackTrace stack) {
+          Log.error('Download', error, stack);
+          _setError('Error: $error');
+        })
+        .whenComplete(() => _activeRun = null);
+  }
+
+  Future<void> _resume() async {
     if (_isRunning) {
       return;
     }
@@ -927,7 +983,7 @@ class ArchiveDownloadTask extends DownloadTask {
       if (!await _uploadToNasIfNeeded()) return;
       if (!_isRunning || generation != _runGeneration) return;
 
-      LocalManager().completeTask(this);
+      await LocalManager().completeTask(this);
       committed = true;
       await install.finish();
       await archiveFile.deleteIgnoreError();

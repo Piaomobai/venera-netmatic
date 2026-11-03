@@ -409,6 +409,186 @@ void main() {
       TaskRunnerRegistry.clear();
     });
 
+    test(
+      'CLI batch runs every initial due task once and leaves future work',
+      () async {
+        if (!_requireSqlite()) return;
+        final runner = _RecordingRunner();
+        TaskRunnerRegistry.register(runner);
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        final ids = <String>[];
+        for (var i = 0; i < 3; i++) {
+          final task = engine.createTask(
+            typeKey: 'recorder',
+            name: '$i',
+            schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+          )!;
+          if (i < 2) {
+            ids.add(task.id);
+            engine.updateTask(
+              task.copyWith(
+                nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+              ),
+            );
+          }
+        }
+        expect(await engine.runDueBatch(), ids);
+        expect(runner.runCount, 2);
+        expect(await engine.runDueBatch(), isEmpty);
+      },
+    );
+
+    test(
+      'CLI batch obeys its bound and does not retry failed tasks in a loop',
+      () async {
+        if (!_requireSqlite()) return;
+        final runner = _RecordingRunner(fail: true);
+        TaskRunnerRegistry.register(runner);
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        for (var i = 0; i < 3; i++) {
+          final task = engine.createTask(
+            typeKey: 'recorder',
+            name: '$i',
+            schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+          )!;
+          engine.updateTask(
+            task.copyWith(
+              nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+            ),
+          );
+        }
+        expect(await engine.runDueBatch(maxTasks: 2), hasLength(2));
+        expect(runner.runCount, 2);
+        expect(engine.tasks.where((t) => t.isDue), hasLength(1));
+      },
+    );
+
+    test(
+      'headless due batches defer NAS with a bounded aging window',
+      () async {
+        if (!_requireSqlite()) return;
+        TaskRunnerRegistry.register(_RecordingRunner());
+        TaskRunnerRegistry.register(_NasRecordingRunner());
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        final nas = engine.createTask(
+          typeKey: 'nasSync',
+          name: 'NAS',
+          schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+        )!;
+        final scan = engine.createTask(
+          typeKey: 'recorder',
+          name: 'Scan',
+          schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+        )!;
+        engine.updateTask(
+          nas.copyWith(
+            nextRunAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
+        engine.updateTask(
+          scan.copyWith(
+            nextRunAt: DateTime.now().subtract(const Duration(seconds: 30)),
+          ),
+        );
+        expect(await engine.runDueBatch(deferNas: true), [scan.id, nas.id]);
+        engine.updateTask(
+          engine
+              .findTask(nas.id)!
+              .copyWith(
+                nextRunAt: DateTime.now().subtract(const Duration(minutes: 10)),
+              ),
+        );
+        engine.updateTask(
+          engine
+              .findTask(scan.id)!
+              .copyWith(
+                nextRunAt: DateTime.now().subtract(const Duration(seconds: 30)),
+              ),
+        );
+        expect(await engine.runDueBatch(deferNas: true), [nas.id, scan.id]);
+      },
+    );
+
+    test('scheduler cancellation interrupts a stalled source wait', () async {
+      if (!_requireSqlite()) return;
+      final runner = _CancellableReadRunner();
+      TaskRunnerRegistry.register(runner);
+      final engine = SchedulerEngine();
+      await engine.init(databasePath: databasePath, startTimer: false);
+      final task = engine.createTask(
+        typeKey: 'recorder',
+        name: 'Stalled',
+        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+      )!;
+      final running = engine.runNow(task.id);
+      await runner.started.future;
+      engine.requestCancel();
+      await running.timeout(const Duration(seconds: 2));
+      expect(engine.findTask(task.id)!.lastState, TaskRunState.cancelled);
+    });
+
+    test('task stays running until its download finalizer finishes', () async {
+      if (!_requireSqlite()) return;
+      TaskRunnerRegistry.register(_RecordingRunner());
+      final engine = SchedulerEngine();
+      await engine.init(databasePath: databasePath, startTimer: false);
+      final task = engine.createTask(
+        typeKey: 'recorder',
+        name: 'with download',
+        schedule: ScheduleSpec.everyInterval(const Duration(minutes: 30)),
+      )!;
+      final finalizing = Completer<void>();
+      final release = Completer<void>();
+      final running = engine.runNow(
+        task.id,
+        settle: (_, _) async {
+          finalizing.complete();
+          await release.future;
+          return const TaskRunOutcome.failed('NAS upload failed');
+        },
+      );
+      await finalizing.future;
+      expect(engine.findTask(task.id)!.lastState, TaskRunState.running);
+      release.complete();
+      await running;
+      expect(engine.findTask(task.id)!.lastState, TaskRunState.failed);
+      expect(engine.runsFor(task.id).single.error, 'NAS upload failed');
+    });
+
+    test(
+      'read-only CLI init preserves running state and run-on-start schedule',
+      () async {
+        if (!_requireSqlite()) return;
+        TaskRunnerRegistry.register(_RecordingRunner());
+        final engine = SchedulerEngine();
+        await engine.init(databasePath: databasePath, startTimer: false);
+        final task = engine.createTask(
+          typeKey: 'recorder',
+          name: 'owner',
+          runOnStart: true,
+          schedule: ScheduleSpec.everyInterval(const Duration(hours: 1)),
+        )!;
+        engine.updateTask(task.copyWith(lastState: TaskRunState.running));
+        final before = engine.findTask(task.id)!;
+        engine.close();
+        await engine.init(
+          databasePath: databasePath,
+          startTimer: false,
+          recoverRuns: false,
+          markRunOnStart: false,
+          strict: true,
+        );
+        expect(engine.findTask(task.id)!.lastState, TaskRunState.running);
+        expect(
+          engine.findTask(task.id)!.nextRunAt!.millisecondsSinceEpoch,
+          before.nextRunAt!.millisecondsSinceEpoch,
+        );
+      },
+    );
+
     test('createTask rejects an unregistered type', () async {
       if (!_requireSqlite()) {
         return;
@@ -981,5 +1161,20 @@ class _CancellingRunner extends SchedulableRunner {
   @override
   Future<TaskRunOutcome> run(TaskRunContext context) async {
     throw const TaskCancelledException();
+  }
+}
+
+class _NasRecordingRunner extends _RecordingRunner {
+  @override
+  String get typeKey => 'nasSync';
+}
+
+class _CancellableReadRunner extends _RecordingRunner {
+  final started = Completer<void>();
+  @override
+  Future<TaskRunOutcome> run(TaskRunContext context) async {
+    started.complete();
+    await context.wait(Completer<void>().future);
+    return super.run(context);
   }
 }

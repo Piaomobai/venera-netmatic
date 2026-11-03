@@ -8,6 +8,7 @@ import 'package:venera_netmatic/foundation/history.dart';
 import 'appdata.dart';
 import 'favorites.dart';
 import 'local.dart';
+import 'process_lock.dart';
 
 export "widget_utils.dart";
 export "context.dart";
@@ -15,7 +16,7 @@ export "context.dart";
 class _App {
   /// Public app version used by comic-source compatibility checks and the
   /// About page. Keep this in sync with the version in pubspec.yaml.
-  final version = "2.0.1";
+  final version = "2.1.0";
 
   bool get isAndroid => Platform.isAndroid;
 
@@ -35,6 +36,10 @@ class _App {
   // Whether the app has been initialized.
   // If current Isolate is main Isolate, this value is always true.
   bool isInitialized = false;
+  bool isHeadless = false;
+  String? dataPathOverride;
+  String? cachePathOverride;
+  AppProcessLock? processLock;
 
   Locale get locale {
     Locale deviceLocale = PlatformDispatcher.instance.locale;
@@ -82,8 +87,16 @@ class _App {
   }
 
   Future<void> init() async {
-    cachePath = (await getApplicationCacheDirectory()).path;
-    dataPath = (await getApplicationSupportDirectory()).path;
+    if (isInitialized) return;
+    dataPath =
+        dataPathOverride ?? (await getApplicationSupportDirectory()).path;
+    processLock = await AppProcessLock.acquire(dataPath);
+    cachePath =
+        cachePathOverride ??
+        (dataPathOverride != null
+            ? '$dataPath/cache'
+            : (await getApplicationCacheDirectory()).path);
+    await Directory(cachePath).create(recursive: true);
     if (isAndroid) {
       externalStoragePath = (await getExternalStorageDirectory())!.path;
     }

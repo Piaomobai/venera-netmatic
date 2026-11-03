@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:venera_netmatic/foundation/log.dart';
+import 'package:venera_netmatic/foundation/app.dart';
 
 class CookieJarSql {
   late Database _db;
@@ -16,6 +17,13 @@ class CookieJarSql {
 
   void init() {
     _db = sqlite3.open(path);
+    if (Platform.isMacOS || Platform.isLinux) {
+      final permissions = Process.runSync('chmod', ['600', path]);
+      if (permissions.exitCode != 0) {
+        _db.dispose();
+        throw StateError('Could not protect cookie storage.');
+      }
+    }
     _db.execute('''
       CREATE TABLE IF NOT EXISTS cookies (
         name TEXT NOT NULL,
@@ -28,9 +36,13 @@ class CookieJarSql {
         PRIMARY KEY (name, domain, path)
       );
     ''');
+    _db.execute('''CREATE TABLE IF NOT EXISTS source_cookies (
+      source_key TEXT NOT NULL, name TEXT NOT NULL, domain TEXT NOT NULL,
+      path TEXT NOT NULL, PRIMARY KEY(source_key, name, domain, path)
+    )''');
   }
 
-  void saveFromResponse(Uri uri, List<Cookie> cookies) {
+  void saveFromResponse(Uri uri, List<Cookie> cookies, {String? sourceKey}) {
     for (var cookie in cookies) {
       final host = uri.host.toLowerCase();
       final domain = (cookie.domain ?? host).toLowerCase().replaceFirst(
@@ -58,7 +70,29 @@ class CookieJarSql {
           cookie.httpOnly ? 1 : 0,
         ],
       );
+      _own(cookie, sourceKey);
     }
+  }
+
+  void _own(Cookie cookie, String? sourceKey) {
+    if (sourceKey == null) return;
+    _db.execute('INSERT OR IGNORE INTO source_cookies VALUES (?, ?, ?, ?)', [
+      sourceKey,
+      cookie.name,
+      cookie.domain,
+      cookie.path ?? '/',
+    ]);
+  }
+
+  /// Revoke cookies observed or created by this source, including after a
+  /// worker restart. Other hosts' cookies and source data stay intact.
+  void deleteForSource(String sourceKey) {
+    _db.execute(
+      '''DELETE FROM cookies WHERE (name, domain, path) IN
+      (SELECT name, domain, path FROM source_cookies WHERE source_key = ?)''',
+      [sourceKey],
+    );
+    _db.execute('DELETE FROM source_cookies WHERE source_key = ?', [sourceKey]);
   }
 
   bool _isPublicSuffix(String domain) {
@@ -103,7 +137,7 @@ class CookieJarSql {
     return acceptedDomains;
   }
 
-  List<Cookie> loadForRequest(Uri uri) {
+  List<Cookie> loadForRequest(Uri uri, {String? sourceKey}) {
     // if uri.host is example.example.com, acceptedDomains will be [".example.example.com", ".example.com", "example.com"]
     var acceptedDomains = _getAcceptedDomains(uri.host);
 
@@ -127,7 +161,7 @@ class CookieJarSql {
       );
     }
 
-    return cookies
+    final accepted = cookies
         .where(
           (element) =>
               !expires.contains(element) &&
@@ -135,6 +169,10 @@ class CookieJarSql {
               _checkPathMatch(uri, element.path),
         )
         .toList();
+    for (final cookie in accepted) {
+      _own(cookie, sourceKey);
+    }
+    return accepted;
   }
 
   bool _checkPathMatch(Uri uri, String? cookiePath) {
@@ -157,7 +195,11 @@ class CookieJarSql {
     return uri.path.startsWith('$cookiePath/');
   }
 
-  void saveFromResponseCookieHeader(Uri uri, List<String> cookieHeader) {
+  void saveFromResponseCookieHeader(
+    Uri uri,
+    List<String> cookieHeader, {
+    String? sourceKey,
+  }) {
     var cookies = <Cookie>[];
     for (var header in cookieHeader) {
       try {
@@ -168,11 +210,11 @@ class CookieJarSql {
         continue;
       }
     }
-    saveFromResponse(uri, cookies);
+    saveFromResponse(uri, cookies, sourceKey: sourceKey);
   }
 
-  String loadForRequestCookieHeader(Uri uri) {
-    var cookies = loadForRequest(uri);
+  String loadForRequestCookieHeader(Uri uri, {String? sourceKey}) {
+    var cookies = loadForRequest(uri, sourceKey: sourceKey);
     var map = <String, Cookie>{};
     for (var cookie in cookies) {
       if (map.containsKey(cookie.name)) {
@@ -220,6 +262,7 @@ class CookieJarSql {
     _db.execute('''
       DELETE FROM cookies;
     ''');
+    _db.execute('DELETE FROM source_cookies');
   }
 
   void dispose() {
@@ -239,7 +282,9 @@ class SingleInstanceCookieJar extends CookieJarSql {
     if (instance != null) {
       return instance!;
     }
-    var dataPath = (await getApplicationSupportDirectory()).path;
+    var dataPath = App.isInitialized
+        ? App.dataPath
+        : (await getApplicationSupportDirectory()).path;
     instance = SingleInstanceCookieJar("$dataPath/cookie.db");
     return instance!;
   }
@@ -252,7 +297,10 @@ class CookieManagerSql extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    var cookies = cookieJar.loadForRequestCookieHeader(options.uri);
+    var cookies = cookieJar.loadForRequestCookieHeader(
+      options.uri,
+      sourceKey: options.extra['source_key'] as String?,
+    );
     if (cookies.isNotEmpty) {
       if (options.headers["cookie"] != null) {
         cookies = "${options.headers["cookie"]}; $cookies";
@@ -267,6 +315,7 @@ class CookieManagerSql extends Interceptor {
     cookieJar.saveFromResponseCookieHeader(
       response.requestOptions.uri,
       response.headers["set-cookie"] ?? [],
+      sourceKey: response.requestOptions.extra['source_key'] as String?,
     );
     handler.next(response);
   }

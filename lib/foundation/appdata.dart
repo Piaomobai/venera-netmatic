@@ -18,6 +18,12 @@ class Appdata with Init {
 
   bool _isSavingData = false;
 
+  Future<void> flushPendingData() async {
+    while (_isSavingData) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
   Future<void> saveData([bool sync = true]) async {
     while (_isSavingData) {
       await Future.delayed(const Duration(milliseconds: 20));
@@ -47,7 +53,7 @@ class Appdata with Init {
     } finally {
       _isSavingData = false;
     }
-    if (sync) {
+    if (sync && !App.isHeadless) {
       DataSync().uploadData();
     }
   }
@@ -134,7 +140,9 @@ class Appdata with Init {
 
   @override
   Future<void> doInit() async {
-    var dataPath = (await getApplicationSupportDirectory()).path;
+    var dataPath = App.isInitialized
+        ? App.dataPath
+        : (await getApplicationSupportDirectory()).path;
     var file = File(FilePath.join(dataPath, 'appdata.json'));
     if (!await file.exists()) {
       return;
@@ -149,6 +157,7 @@ class Appdata with Init {
       searchHistory = List.from(json['searchHistory']);
     } catch (e) {
       Log.error("Appdata", "Failed to load appdata", e);
+      if (App.isHeadless) rethrow;
       Log.info("Appdata", "Resetting appdata");
       file.deleteIgnoreError();
     }

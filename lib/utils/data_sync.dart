@@ -22,7 +22,7 @@ class DataSync with ChangeNotifier {
     }
     LocalFavoritesManager().addListener(onDataChanged);
     ComicSourceManager().addListener(onDataChanged);
-    if (App.isDesktop) {
+    if (App.isDesktop && !App.isHeadless) {
       Future.delayed(const Duration(seconds: 1), () {
         var controller = WindowFrame.of(App.rootContext);
         controller.addCloseListener(_handleWindowClose);
@@ -77,6 +77,7 @@ class DataSync with ChangeNotifier {
   String? get lastError => _lastError;
 
   bool get isEnabled {
+    if (App.isHeadless) return false;
     var config = appdata.settings['webdav'];
     var autoSync = appdata.implicitData['webdavAutoSync'] ?? false;
     return autoSync && config is List && config.isNotEmpty;
@@ -131,10 +132,10 @@ class DataSync with ChangeNotifier {
         appdata.settings['dataVersion']++;
         await appdata.saveData(false);
         var data = await exportAppData(
-            appdata.settings['disableSyncFields'].toString().isNotEmpty
+          appdata.settings['disableSyncFields'].toString().isNotEmpty,
         );
-        var time =
-            (DateTime.now().millisecondsSinceEpoch ~/ 86400000).toString();
+        var time = (DateTime.now().millisecondsSinceEpoch ~/ 86400000)
+            .toString();
         var filename = time;
         filename += '-';
         filename += appdata.settings['dataVersion'].toString();
@@ -201,8 +202,11 @@ class DataSync with ChangeNotifier {
         if (file == null) {
           throw 'No data file found';
         }
-        var version =
-            file.name!.split('-').elementAtOrNull(1)?.split('.').first;
+        var version = file.name!
+            .split('-')
+            .elementAtOrNull(1)
+            ?.split('.')
+            .first;
         if (version != null && int.tryParse(version) != null) {
           var currentVersion = appdata.settings['dataVersion'];
           if (currentVersion != null && int.parse(version) <= currentVersion) {

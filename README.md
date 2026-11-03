@@ -35,6 +35,10 @@ Venera Netmatic 是基于开源漫画阅读器 [Venera](https://github.com/vener
 
 ## 功能
 
+版本变更见 [更新记录](CHANGELOG.md)。
+
+Linux 无桌面部署和 AI HTTP 接入：[Docker 与 Headless 服务](doc/docker_headless.md)；脚本命令：[Headless CLI](doc/headless_doc.md)。
+
 - 阅读本地漫画；
 - 使用 JavaScript 创建和加载漫画源；
 - 阅读网络漫画并管理收藏；

@@ -119,8 +119,21 @@ class ComicSourceParser {
     }
     var className = line1.split("class")[1].split("extends ComicSource").first;
     className = className.trim();
-    JsEngine().runCode("""(() => { $js
+    final scopedNetwork = App.isHeadless
+        ? '''
+        const sourceReference = {source: null};
+        const Network = HeadlessSourceRuntime.network(sourceReference);
+      '''
+        : '';
+    final installRuntime = App.isHeadless
+        ? '''
+        sourceReference.source = this['temp'];
+        HeadlessSourceRuntime.install(this['temp'], Network);
+      '''
+        : '';
+    JsEngine().runCode("""(() => { $scopedNetwork $js
         this['temp'] = new $className()
+        $installRuntime
       }).call()
     """, className);
     _name =
@@ -227,12 +240,16 @@ class ComicSourceParser {
     if (_checkExists("account.login")) {
       login = (account, pwd) async {
         try {
-          await JsEngine().runCode("""
+          final result = await JsEngine().runCode("""
           ComicSource.sources.$_key.account.login(${jsonEncode(account)},
           ${jsonEncode(pwd)})
         """);
+          if (App.isHeadless && result == false) {
+            return const Res.error('authentication_failed');
+          }
           var source = ComicSource.find(_key!)!;
           source.data["account"] = <String>[account, pwd];
+          source.data.remove('__headlessAuth');
           source.saveData();
           return const Res(true);
         } catch (e, s) {
@@ -243,7 +260,9 @@ class ComicSourceParser {
     }
 
     void logout() {
-      JsEngine().runCode("ComicSource.sources.$_key.account.logout()");
+      if (_checkExists('account.logout')) {
+        JsEngine().runCode("ComicSource.sources.$_key.account.logout()");
+      }
     }
 
     bool Function(String url, String title)? checkLoginStatus;
@@ -277,6 +296,7 @@ class ComicSourceParser {
           """);
           return res;
         } catch (e, s) {
+          if (App.isHeadless) rethrow;
           Log.error("Network", "$e\n$s");
           return false;
         }
@@ -292,6 +312,25 @@ class ComicSourceParser {
       onLoginSuccess,
       ListOrNull.from(_getValue("account.loginWithCookies?.fields")),
       validateCookies,
+      logoutAsync: () async {
+        if (_checkExists('account.logout')) {
+          await JsEngine().runCode(
+            'ComicSource.sources.$_key.account.logout()',
+          );
+        }
+      },
+      validateSession: _checkExists('account.validateSession')
+          ? () async =>
+                await JsEngine().runCode(
+                  'ComicSource.sources.$_key.account.validateSession()',
+                ) ==
+                true
+          : null,
+      waitForIdle: App.isHeadless
+          ? () async => await JsEngine().runCode(
+              'ComicSource.sources.$_key.__headlessWaitForIdle()',
+            )
+          : null,
     );
   }
 

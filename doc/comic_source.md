@@ -114,6 +114,16 @@ Remove this function if not used.
         },
 
         /**
+         * [Optional] Validate the currently saved session without logging in.
+         * Used by headless login/verify. Return false for an expired session;
+         * throw for network/server failures. Do not return account data.
+         * @returns {Promise<boolean>}
+         */
+        validateSession: async () => {
+
+        },
+
+        /**
          * [Optional] login with webview
          */
         loginWithWebview: {
@@ -173,6 +183,12 @@ Remove this function if not used.
 In this part, you can implement login, logout, and register functions.
 
 Remove this part if not used.
+
+Headless login supports password and Cookie methods. Login must throw on failure
+(an explicit `false` is also treated as failure in headless). A WebView or other
+required UI interaction returns `interaction_required`. Logout may return a
+Promise; headless awaits it before clearing the local session. See
+[Headless account lifecycle](headless_auth.md) for input formats and retry rules.
 
 #### Explore page
 

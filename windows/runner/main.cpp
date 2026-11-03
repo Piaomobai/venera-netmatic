@@ -1,6 +1,8 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <algorithm>
+#include <cstdlib>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -21,6 +23,20 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
+
+  if (std::find(command_line_arguments.begin(), command_line_arguments.end(),
+                "--headless") != command_line_arguments.end()) {
+    char* value = nullptr;
+    size_t length = 0;
+    _dupenv_s(&value, &length, "FLUTTER_ENGINE_SWITCHES");
+    const int count = value ? std::atoi(value) : 0;
+    std::free(value);
+    if (count >= 0 && count < 50) {
+      _putenv_s("FLUTTER_ENGINE_SWITCHES", std::to_string(count + 1).c_str());
+      _putenv_s(("FLUTTER_ENGINE_SWITCH_" + std::to_string(count + 1)).c_str(),
+                "disable-vm-service");
+    }
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

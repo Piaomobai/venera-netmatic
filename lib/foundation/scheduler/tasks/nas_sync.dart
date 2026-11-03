@@ -66,7 +66,10 @@ class NasSyncRunner extends SchedulableRunner {
     manager.addListener(reportNasProgress);
     try {
       context.log('Synchronizing to NAS "${connection.name}"');
-      final result = await manager.syncAll(connectionId);
+      final result = await manager.syncAll(
+        connectionId,
+        checkCancelled: context.throwIfCancelled,
+      );
       context.throwIfCancelled();
       final message =
           'NAS sync complete: ${result.uploadedFiles} uploaded, '

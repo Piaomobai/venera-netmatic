@@ -34,6 +34,8 @@ part 'types.dart';
 
 class ComicSourceManager with ChangeNotifier, Init {
   final List<ComicSource> _sources = [];
+  final Map<String, String> _loadErrors = {};
+  Map<String, String> get loadErrors => Map.unmodifiable(_loadErrors);
 
   static ComicSourceManager? _instance;
 
@@ -52,6 +54,7 @@ class ComicSourceManager with ChangeNotifier, Init {
   @override
   @protected
   Future<void> doInit() async {
+    _loadErrors.clear();
     await JsEngine().ensureInit();
     final path = "${App.dataPath}/comic_source";
     if (!(await Directory(path).exists())) {
@@ -67,6 +70,7 @@ class ComicSourceManager with ChangeNotifier, Init {
           );
           add(source);
         } catch (e, s) {
+          _loadErrors[entity.name] = e.toString();
           Log.error("ComicSource", "$e\n$s");
         }
       }
@@ -226,6 +230,13 @@ class ComicSource {
   /// [ComicSourceManager]. Network-backed consumers such as scheduled tasks
   /// must await this before calling a source loader.
   Future<void> ensureInitialized() {
+    if (accountCleanupFailed) {
+      return Future<void>.error(
+        StateError(
+          'source_cleanup_failed: Restart the worker before using this source.',
+        ),
+      );
+    }
     return _initialization ??= _hasInitHook
         ? Future<void>.sync(
             () async =>
@@ -241,24 +252,61 @@ class ComicSource {
     }
   }
 
-  bool _isSaving = false;
-  bool _haveWaitingTask = false;
+  /// Account changes stage script writes in memory until commit/rollback.
+  bool accountMutationInProgress = false;
+  bool accountCleanupFailed = false;
+  Future<void> _pendingSave = Future<void>.value();
+  Object? _saveError;
 
-  Future<void> saveData() async {
-    if (_haveWaitingTask) return;
-    while (_isSaving) {
-      _haveWaitingTask = true;
-      await Future.delayed(const Duration(milliseconds: 20));
-      _haveWaitingTask = false;
+  Future<void> flushPendingData() async {
+    while (true) {
+      final pending = _pendingSave;
+      await pending;
+      if (identical(pending, _pendingSave)) break;
     }
-    _isSaving = true;
-    var file = File("${App.dataPath}/comic_source/$key.data");
-    if (!await file.exists()) {
-      await file.create(recursive: true);
-    }
-    await file.writeAsString(jsonEncode(data));
-    _isSaving = false;
-    DataSync().uploadData();
+    if (_saveError != null) throw StateError('Could not save source data.');
+  }
+
+  Future<void> saveData() {
+    if (accountMutationInProgress) return Future<void>.value();
+    final contents = jsonEncode(data);
+    final write = _pendingSave.then((_) async {
+      var file = File("${App.dataPath}/comic_source/$key.data");
+      await file.parent.create(recursive: true);
+      final temp = File('${file.path}.tmp');
+      // Mobile app sandboxes provide isolation and do not support spawning
+      // chmod (notably iOS). Desktop profiles need explicit POSIX permissions.
+      if (Platform.isMacOS || Platform.isLinux) {
+        final permissions = await Process.run('chmod', [
+          '700',
+          file.parent.path,
+        ]);
+        if (permissions.exitCode != 0) {
+          throw StateError('Could not protect source directory.');
+        }
+      }
+      if (await FileSystemEntity.type(temp.path, followLinks: false) ==
+          FileSystemEntityType.link) {
+        await temp.delete();
+      }
+      await temp.create();
+      if (Platform.isMacOS || Platform.isLinux) {
+        final permissions = await Process.run('chmod', ['600', temp.path]);
+        if (permissions.exitCode != 0) {
+          throw StateError('Could not protect source data.');
+        }
+      }
+      await temp.writeAsString(contents, flush: true);
+      await temp.rename(file.path);
+      _saveError = null;
+      if (!App.isHeadless) DataSync().uploadData();
+    });
+    // JS saveData is synchronous. Observe failures even when its caller cannot
+    // await them; headless's final flush still reports a persistence failure.
+    _pendingSave = write.catchError((Object e) {
+      _saveError = e;
+    });
+    return write;
   }
 
   Future<bool> reLogin() async {
@@ -363,6 +411,10 @@ class AccountConfig {
 
   final Future<bool> Function(List<String>)? validateCookies;
 
+  final Future<void> Function()? logoutAsync;
+  final Future<bool> Function()? validateSession;
+  final Future<void> Function()? waitForIdle;
+
   const AccountConfig(
     this.login,
     this.loginWebsite,
@@ -371,8 +423,11 @@ class AccountConfig {
     this.checkLoginStatus,
     this.onLoginWithWebviewSuccess,
     this.cookieFields,
-    this.validateCookies,
-  ) : infoItems = const [];
+    this.validateCookies, {
+    this.logoutAsync,
+    this.validateSession,
+    this.waitForIdle,
+  }) : infoItems = const [];
 }
 
 class AccountInfoItem {

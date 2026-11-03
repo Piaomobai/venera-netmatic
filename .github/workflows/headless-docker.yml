@@ -1,0 +1,43 @@
+name: Headless Docker
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/headless-docker.yml'
+      - '.dockerignore'
+      - 'compose.yaml'
+      - 'docker/**'
+      - 'lib/**'
+      - 'linux/**'
+      - 'pubspec.*'
+      - 'rust-toolchain.toml'
+      - 'assets/**'
+      - 'tool/headless*'
+      - 'test/fixtures/headless_auth_source.js'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-amd64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          tags: venera-headless-worker:local
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: docker build -f docker/Dockerfile.api -t venera-headless-api:local .
+      - run: docker run --rm venera-headless-worker:local --self-test
+      - run: docker run --rm venera-headless-worker:local --service-self-test
+      - run: docker run --rm venera-headless-worker:local --auth-self-test
+      - run: python3 tool/headless_compose_smoke.py

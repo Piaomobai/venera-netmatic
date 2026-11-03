@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:venera_netmatic/foundation/async_control.dart';
 
 import 'schedule.dart';
 
@@ -515,6 +516,12 @@ class TaskRunContext {
       throw const TaskCancelledException();
     }
   }
+
+  /// For source/network reads and throttle delays, never for a write commit.
+  Future<T> wait<T>(Future<T> operation,
+          {Duration timeout = const Duration(seconds: 60)}) =>
+      waitCancellable(operation,
+          checkCancelled: throwIfCancelled, timeout: timeout);
 
   /// Convenience reader for runner options with a default.
   T configValue<T>(String key, T fallback) {

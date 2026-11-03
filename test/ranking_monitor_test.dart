@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:venera_netmatic/foundation/scheduler/task.dart';
 import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/res.dart';
 import 'package:venera_netmatic/foundation/scheduler/tasks/ranking_monitor.dart';
@@ -352,6 +354,92 @@ void main() {
         ),
         ['day'],
       );
+    });
+  });
+  group('cancellation and read deadlines', () {
+    test('paged scans stop before another page after cancellation', () async {
+      var cancelled = false;
+      var calls = 0;
+      final ranking = RankingData({'day': 'Day'}, (option, page) async {
+        calls++;
+        cancelled = true;
+        return Res([comic('one')]);
+      }, null);
+      await expectLater(
+        RankingMonitorRunner.scanOption(
+          ranking,
+          'day',
+          5,
+          checkCancelled: () {
+            if (cancelled) throw const TaskCancelledException();
+          },
+        ),
+        throwsA(isA<TaskCancelledException>()),
+      );
+      expect(calls, 1);
+    });
+    test('cursor scans stop before another page after cancellation', () async {
+      var cancelled = false;
+      var calls = 0;
+      final ranking = RankingData({'day': 'Day'}, null, (option, cursor) async {
+        calls++;
+        cancelled = true;
+        return Res([comic('one')], subData: 'next');
+      });
+      await expectLater(
+        RankingMonitorRunner.scanOption(
+          ranking,
+          'day',
+          5,
+          checkCancelled: () {
+            if (cancelled) throw const TaskCancelledException();
+          },
+        ),
+        throwsA(isA<TaskCancelledException>()),
+      );
+      expect(calls, 1);
+    });
+    test(
+      'cancel interrupts a stalled ranking page without advancing',
+      () async {
+        var cancelled = false;
+        var calls = 0;
+        final page = Completer<Res<List<Comic>>>();
+        final ranking = RankingData({'day': 'Day'}, (option, index) {
+          calls++;
+          return page.future;
+        }, null);
+        final scanning = RankingMonitorRunner.scanOption(
+          ranking,
+          'day',
+          5,
+          checkCancelled: () {
+            if (cancelled) throw const TaskCancelledException();
+          },
+        );
+        cancelled = true;
+        await expectLater(scanning, throwsA(isA<TaskCancelledException>()));
+        page.complete(Res([comic('late')]));
+        await Future<void>.delayed(Duration.zero);
+        expect(calls, 1);
+      },
+    );
+    test('stalled pages have a finite read deadline', () async {
+      final page = Completer<Res<List<Comic>>>();
+      final ranking = RankingData(
+        {'day': 'Day'},
+        (option, index) => page.future,
+        null,
+      );
+      final scan = await RankingMonitorRunner.scanOption(
+        ranking,
+        'day',
+        5,
+        requestTimeout: const Duration(milliseconds: 20),
+      );
+      expect(scan.error, contains('TimeoutException'));
+      expect(scan.pagesRead, 0);
+      page.complete(const Res(<Comic>[]));
     });
   });
 }

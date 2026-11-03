@@ -154,6 +154,9 @@ class SchedulerEngine with ChangeNotifier {
   Future<void> init({
     required String databasePath,
     bool startTimer = true,
+    bool recoverRuns = true,
+    bool markRunOnStart = true,
+    bool strict = false,
   }) async {
     if (_started) {
       return;
@@ -163,9 +166,9 @@ class SchedulerEngine with ChangeNotifier {
       registerBuiltInTaskRunners();
       _store.open(databasePath);
       _tasks = _store.loadTasks();
-      _recoverInterruptedRuns();
-      _markRunOnStartTasksDue();
-      _scheduleMissingNextRuns();
+      if (recoverRuns) _recoverInterruptedRuns();
+      if (markRunOnStart) _markRunOnStartTasksDue();
+      if (recoverRuns) _scheduleMissingNextRuns();
       _started = true;
       if (startTimer) {
         _timer = Timer.periodic(tickInterval, (_) => _tick());
@@ -177,6 +180,7 @@ class SchedulerEngine with ChangeNotifier {
       );
     } catch (e, s) {
       Log.error('Scheduler', 'Failed to start scheduler: $e', s);
+      if (strict) rethrow;
     }
     _notify();
   }
@@ -405,7 +409,10 @@ class SchedulerEngine with ChangeNotifier {
   /// A manual run does not consume the pending scheduled slot for calendar
   /// schedules; interval schedules are re-anchored because the interval is
   /// measured from the previous run.
-  Future<void> runNow(String id) async {
+  Future<void> runNow(
+    String id, {
+    Future<TaskRunOutcome> Function(TaskDefinition, TaskRunOutcome)? settle,
+  }) async {
     if (_isExecuting || _activeTaskId != null) {
       return;
     }
@@ -413,7 +420,54 @@ class SchedulerEngine with ChangeNotifier {
     if (task == null) {
       return;
     }
-    await _execute(task, manual: true);
+    await _execute(task, manual: true, settle: settle);
+  }
+
+  /// Runs only the snapshot due at invocation, once each. Retries and new
+  /// arrivals are left to the next call, so a batch always has a finite bound.
+  Future<List<String>> runDueBatch({
+    int maxTasks = 100,
+    bool deferNas = false,
+    void Function()? checkCancelled,
+    Future<TaskRunOutcome> Function(TaskDefinition, TaskRunOutcome)? settle,
+  }) async {
+    if (_isExecuting) throw StateError('Scheduler is busy');
+    if (maxTasks < 1) throw ArgumentError.value(maxTasks, 'maxTasks');
+    final now = DateTime.now();
+    final due =
+        _tasks
+            .where(
+              (t) =>
+                  t.enabled &&
+                  t.nextRunAt != null &&
+                  !t.nextRunAt!.isAfter(now),
+            )
+            .toList()
+          ..sort((a, b) {
+            if (deferNas) {
+              // NAS may wait behind scans/download planning, but overdue NAS
+              // tasks regain normal ordering after five minutes.
+              int rank(TaskDefinition task) =>
+                  task.typeKey == 'nasSync' &&
+                      now.difference(task.nextRunAt!) <
+                          const Duration(minutes: 5)
+                  ? 1
+                  : 0;
+              final priority = rank(a).compareTo(rank(b));
+              if (priority != 0) return priority;
+            }
+            final order = a.nextRunAt!.compareTo(b.nextRunAt!);
+            return order == 0 ? a.sortOrder.compareTo(b.sortOrder) : order;
+          });
+    final executed = <String>[];
+    for (final item in due.take(maxTasks)) {
+      checkCancelled?.call();
+      final current = findTask(item.id);
+      if (current == null || !current.enabled) continue;
+      await _execute(current, manual: false, settle: settle);
+      executed.add(current.id);
+    }
+    return executed;
   }
 
   /// Requests cancellation of the active run.
@@ -464,7 +518,11 @@ class SchedulerEngine with ChangeNotifier {
     unawaited(runDueTasks());
   }
 
-  Future<void> _execute(TaskDefinition task, {required bool manual}) async {
+  Future<void> _execute(
+    TaskDefinition task, {
+    required bool manual,
+    Future<TaskRunOutcome> Function(TaskDefinition, TaskRunOutcome)? settle,
+  }) async {
     final runner = TaskRunnerRegistry.find(task.typeKey);
     final startedAt = DateTime.now();
 
@@ -514,6 +572,7 @@ class SchedulerEngine with ChangeNotifier {
     var cancelled = false;
     try {
       outcome = await runner.run(_buildContext(task));
+      if (settle != null) outcome = await settle(task, outcome);
     } on TaskCancelledException {
       cancelled = true;
       outcome = const TaskRunOutcome(

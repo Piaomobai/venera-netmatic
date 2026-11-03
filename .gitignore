@@ -65,3 +65,6 @@ add_translation.py
 
 */*/generated_*
 */*/Generated*
+
+# Local container API credentials
+.secrets/

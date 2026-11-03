@@ -207,6 +207,10 @@ class LocalManager with ChangeNotifier {
   late String path;
 
   Directory get directory => Directory(path);
+  bool autoStartDownloads = true;
+  Future<void> _queueWrites = Future<void>.value();
+  Object? _queueWriteError;
+  Object? _queueRestoreError;
 
   void _checkNoMedia() {
     if (App.isAndroid) {
@@ -317,7 +321,7 @@ class LocalManager with ChangeNotifier {
     } catch (e, s) {
       Log.error("IO", "Failed to create local folder: $e", s);
     }
-    _checkPathValidation();
+    await _checkPathValidation();
     _checkNoMedia();
     await ComicSourceManager().ensureInit();
     restoreDownloadingTasks();
@@ -340,10 +344,10 @@ class LocalManager with ChangeNotifier {
 
   Future<void> add(LocalComic comic, [String? id]) async {
     var old = find(id ?? comic.id, comic.comicType);
-    var downloaded = comic.downloadedChapters;
-    if (old != null) {
-      downloaded.addAll(old.downloadedChapters);
-    }
+    final downloaded = <String>{
+      ...?old?.downloadedChapters,
+      ...comic.downloadedChapters,
+    }.toList();
     final originalSourceKey =
         comic.originalSourceKey ??
         old?.originalSourceKey ??
@@ -640,12 +644,12 @@ class LocalManager with ChangeNotifier {
     return relative.isEmpty ? absolutePath : relative;
   }
 
-  void completeTask(DownloadTask task) {
-    add(task.toLocalComic());
+  Future<void> completeTask(DownloadTask task) async {
+    await add(task.toLocalComic());
     downloadingTasks.remove(task);
     notifyListeners();
-    saveCurrentDownloadingTasks();
-    downloadingTasks.firstOrNull?.resume();
+    await saveCurrentDownloadingTasks();
+    if (autoStartDownloads) downloadingTasks.firstOrNull?.resume();
   }
 
   void removeTask(DownloadTask task) {
@@ -668,27 +672,56 @@ class LocalManager with ChangeNotifier {
     }
   }
 
-  Future<void> saveCurrentDownloadingTasks() async {
-    var tasks = downloadingTasks.map((e) => e.toJson()).toList();
-    await File(
-      FilePath.join(App.dataPath, 'downloading_tasks.json'),
-    ).writeAsString(jsonEncode(tasks));
+  Future<void> saveCurrentDownloadingTasks() {
+    final contents = jsonEncode(
+      downloadingTasks.map((e) => e.toJson()).toList(),
+    );
+    final target = FilePath.join(App.dataPath, 'downloading_tasks.json');
+    final write = _queueWrites.then((_) async {
+      if (_queueRestoreError != null) throw _queueRestoreError!;
+      final temporary = File('$target.tmp');
+      await temporary.writeAsString(contents, flush: true);
+      await temporary.rename(target);
+      _queueWriteError = null;
+    });
+    // Attach an error handler even for legacy UI callers that do not await.
+    _queueWrites = write.catchError((Object error) {
+      _queueWriteError = error;
+      Log.error('Download queue', error);
+    });
+    return write;
+  }
+
+  Future<void> flushDownloadingTasks() async {
+    await _queueWrites;
+    if (_queueWriteError != null) throw _queueWriteError!;
   }
 
   void restoreDownloadingTasks() {
     var file = File(FilePath.join(App.dataPath, 'downloading_tasks.json'));
     if (file.existsSync()) {
       try {
-        var tasks = jsonDecode(file.readAsStringSync());
-        for (var e in tasks) {
-          var task = DownloadTask.fromJson(e);
-          if (task != null) {
-            downloadingTasks.add(task);
-          }
+        final restored = <DownloadTask>[];
+        final tasks = jsonDecode(file.readAsStringSync());
+        if (tasks is! List) {
+          throw const FormatException('Invalid download queue');
         }
+        for (final e in tasks) {
+          final task = DownloadTask.fromJson(
+            Map<String, dynamic>.from(e as Map),
+          );
+          if (task == null) {
+            throw const FormatException('Unsupported download task');
+          }
+          restored.add(task);
+        }
+        downloadingTasks.addAll(restored);
+        _queueRestoreError = null;
       } catch (e) {
-        file.delete();
+        // A missing source or malformed entry must never erase the queue.
+        _queueRestoreError = e;
         Log.error("LocalManager", "Failed to restore downloading tasks: $e");
+        if (App.isHeadless) rethrow;
       }
     }
   }
@@ -697,7 +730,7 @@ class LocalManager with ChangeNotifier {
     downloadingTasks.add(task);
     notifyListeners();
     saveCurrentDownloadingTasks();
-    downloadingTasks.first.resume();
+    if (autoStartDownloads) downloadingTasks.first.resume();
   }
 
   void deleteComic(LocalComic c, [bool removeFileOnDisk = true]) {

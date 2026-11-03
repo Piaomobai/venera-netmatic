@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1
+FROM ubuntu:24.04 AS builder
+ARG FLUTTER_VERSION=3.47.3
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git unzip xz-utils zip clang cmake ninja-build pkg-config \
+    libgtk-3-dev libwebkit2gtk-4.1-dev libstdc++-13-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+# Install from the pinned release tag; Flutter fetches architecture-specific SDK
+# and engine artifacts on the build platform (amd64 or arm64).
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" https://github.com/flutter/flutter.git /opt/flutter
+ENV PATH="/opt/flutter/bin:/root/.cargo/bin:${PATH}" \
+    FLUTTER_SUPPRESS_ANALYTICS=true CI=true
+RUN flutter config --no-analytics --enable-linux-desktop && flutter precache --linux
+ARG RUST_VERSION=1.85.1
+RUN curl --proto '=https' --tlsv1.2 --fail --retry 3 https://sh.rustup.rs -o /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_VERSION}" \
+    && rm /tmp/rustup-init.sh
+WORKDIR /src
+COPY pubspec.yaml pubspec.lock ./
+RUN flutter pub get
+COPY lib/ ./lib/
+COPY linux/ ./linux/
+COPY assets/ ./assets/
+COPY rust-toolchain.toml .metadata analysis_options.yaml ./
+# Regenerate Linux plugin registration after copying the native project. The
+# first pub get caches dependencies without depending on application sources.
+RUN flutter pub get --offline \
+    && flutter build linux --release --no-pub \
+    && mkdir /out && cp -a build/linux/*/release/bundle/. /out/
+
+FROM ubuntu:24.04 AS runtime
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates python3 xvfb x11-utils dbus-daemon \
+    libgtk-3-0t64 libwebkit2gtk-4.1-0 libgl1 libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libgles2 libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --uid 10001 venera \
+    && mkdir -p /data /run/venera /tmp/.X11-unix /opt/venera \
+    && chmod 1777 /tmp/.X11-unix \
+    && chown venera:venera /data /run/venera
+COPY --from=builder /out/ /opt/venera/bundle/
+COPY docker/entrypoint.py docker/ipc_client.py docker/api_server.py /opt/venera/
+COPY LICENSE /opt/venera/LICENSE
+COPY tool/headless_smoke_test.py tool/headless_service_smoke.py tool/headless_auth_smoke.py /opt/venera/tests/
+COPY test/fixtures/headless_auth_source.js /opt/venera/tests/headless_auth_source.js
+ENV VENERA_EXECUTABLE=/opt/venera/bundle/venera_netmatic \
+    VENERA_DATA_DIR=/data VENERA_STOP_TIMEOUT=90 \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 10001:10001
+WORKDIR /opt/venera
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["python3", "/opt/venera/entrypoint.py"]
+CMD ["service", "serve", "--socket", "/run/venera/worker.sock"]

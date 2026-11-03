@@ -117,6 +117,7 @@ class IncrementalDownloadRunner extends SchedulableRunner {
       final details = await ComicDownloadPlanner.loadDetails(
         target.source,
         target.comicId,
+        context: context,
       );
       if (details == null) {
         failures++;
@@ -159,7 +160,9 @@ class IncrementalDownloadRunner extends SchedulableRunner {
       );
 
       if (throttleMs > 0) {
-        await Future.delayed(Duration(milliseconds: throttleMs));
+        await context.wait(
+          Future<void>.delayed(Duration(milliseconds: throttleMs)),
+        );
       }
     }
 
@@ -176,7 +179,9 @@ class IncrementalDownloadRunner extends SchedulableRunner {
     }
 
     return TaskRunOutcome(
-      success: true,
+      success: failures == 0,
+      error: failures > 0 ? '$failures comic detail request(s) failed' : null,
+      requestRetry: failures > 0,
       message: parts.join(', '),
       summary: {
         'scope': scope,

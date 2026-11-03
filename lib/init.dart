@@ -36,8 +36,25 @@ extension _FutureInit<T> on Future<T> {
 }
 
 Future<void> init() async {
-  await App.init().wait();
+  // Lock errors must stop startup before another process opens the databases.
+  await App.init();
   await SingleInstanceCookieJar.createInstance();
+  if (App.isHeadless) {
+    await Rhttp.init();
+    await appdata.init();
+    await AppTranslation.init();
+    await TagsTranslation.readData();
+    await OpenCC.init();
+    await JsEngine().init();
+    await ComicSourceManager().init();
+    await App.history.init();
+    await App.favorites.init();
+    await App.local.init();
+    App.local.autoStartDownloads = false;
+    CacheManager().setLimitSize(appdata.settings['cacheSize']);
+    await _checkOldConfigs();
+    return;
+  }
   try {
     var futures = [
       Rhttp.init(),
@@ -54,7 +71,7 @@ Future<void> init() async {
     Log.error("init", "$e\n$s");
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
-  _checkOldConfigs();
+  await _checkOldConfigs();
   if (App.isAndroid) {
     handleLinks();
     handleTextShare();
@@ -77,7 +94,7 @@ Future<void> init() async {
   }
 }
 
-void _checkOldConfigs() {
+Future<void> _checkOldConfigs() async {
   // NAS credentials are device-local and must never be included in the normal
   // WebDAV/AppData synchronization bundle.
   final disabledFields = (appdata.settings['disableSyncFields'] as String)
@@ -88,7 +105,7 @@ void _checkOldConfigs() {
   if (disabledFields.add('nasConnections') |
       disabledFields.add('defaultNasConnectionId')) {
     appdata.settings['disableSyncFields'] = disabledFields.join(',');
-    appdata.saveData();
+    await appdata.saveData(!App.isHeadless);
   }
   if (appdata.settings['searchSources'] == null) {
     appdata.settings['searchSources'] = ComicSource.all()
@@ -115,7 +132,7 @@ void _checkOldConfigs() {
     // migrate to jsdelivr cdn
     appdata.settings['comicSourceListUrl'] =
         "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
-    appdata.saveData();
+    await appdata.saveData(!App.isHeadless);
   }
 }
 

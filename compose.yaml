@@ -1,0 +1,47 @@
+name: venera-headless
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    image: venera-headless-worker:local
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 120s
+    volumes:
+      - data:/data
+      - ipc:/run/venera
+    healthcheck:
+      test: ["CMD", "python3", "/opt/venera/ipc_client.py", "/run/venera/worker.sock", "health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 90s
+      retries: 3
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    image: venera-headless-api:local
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 10s
+    depends_on:
+      worker:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${VENERA_API_PORT:-8080}:8080"
+    volumes:
+      - ipc:/run/venera:ro
+    secrets:
+      - api_token
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+volumes:
+  data:
+  ipc:
+secrets:
+  api_token:
+    file: ${VENERA_API_TOKEN_FILE:-./.secrets/api-token}

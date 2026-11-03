@@ -1,8 +1,28 @@
 import Cocoa
 import FlutterMacOS
+import dart_smb2
+import path_provider_foundation
+import sqlite3_flutter_libs
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  static func main() {
+    guard CommandLine.arguments.contains("--headless") else {
+      _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+      return
+    }
+
+    // NSApplicationMain loads MainMenu.xib and activates a normal application.
+    // A CLI process must opt out before either of those can happen.
+    let application = NSApplication.shared
+    application.setActivationPolicy(.prohibited)
+    let delegate = HeadlessApplicationDelegate()
+    application.delegate = delegate
+    withExtendedLifetime(delegate) {
+      application.run()
+    }
+  }
+
   var flutterResult: FlutterResult?
   var directoryPath: URL!
 
@@ -87,5 +107,60 @@ class AppDelegate: FlutterAppDelegate {
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return true
+  }
+}
+
+/// A windowless engine keeps CLI calls out of the desktop window lifecycle.
+/// Only plugins used by CLI operations are registered: UI plugins may require
+/// a view/window even when their Dart entry points are never called.
+private final class HeadlessApplicationDelegate: FlutterAppDelegate {
+  private var engine: FlutterEngine?
+  private var platformChannel: FlutterMethodChannel?
+
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    let count = Int(ProcessInfo.processInfo.environment["FLUTTER_ENGINE_SWITCHES"] ?? "0") ?? 0
+    if count >= 0 && count < 50 {
+      setenv("FLUTTER_ENGINE_SWITCHES", String(count + 1), 1)
+      setenv("FLUTTER_ENGINE_SWITCH_\(count + 1)", "disable-vm-service", 1)
+    }
+
+    let project = FlutterDartProject()
+    project.dartEntrypointArguments = Array(CommandLine.arguments.dropFirst())
+    let engine = FlutterEngine(name: "Venera headless", project: project, allowHeadlessExecution: true)
+    self.engine = engine
+    guard engine.run(withEntrypoint: nil) else {
+      let failure = "{\"protocolVersion\":1,\"status\":\"error\",\"code\":\"engine_start_failed\",\"message\":\"Could not start the headless engine.\",\"data\":null}\n"
+      FileHandle.standardOutput.write(Data(failure.utf8))
+      exit(1)
+    }
+    PathProviderPlugin.register(with: engine.registrar(forPlugin: "PathProviderPlugin"))
+    Sqlite3FlutterLibsPlugin.register(with: engine.registrar(forPlugin: "Sqlite3FlutterLibsPlugin"))
+    DartSmb2Plugin.register(with: engine.registrar(forPlugin: "DartSmb2Plugin"))
+
+    let channel = FlutterMethodChannel(name: "venera/method_channel", binaryMessenger: engine.binaryMessenger)
+    platformChannel = channel
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "getProxy" else {
+        result(FlutterError(code: "interaction_required", message: "This operation requires the desktop interface.", details: nil))
+        return
+      }
+      guard let settings = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() as? [String: Any] else {
+        result("")
+        return
+      }
+      if let host = settings[kCFNetworkProxiesHTTPProxy as String] as? String,
+         let port = settings[kCFNetworkProxiesHTTPPort as String] as? Int {
+        result("\(host):\(port)")
+      } else if let host = settings[kCFNetworkProxiesSOCKSProxy as String] as? String,
+                let port = settings[kCFNetworkProxiesSOCKSPort as String] as? Int {
+        result("\(host):\(port)")
+      } else {
+        result("")
+      }
+    }
+  }
+
+  override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    return false
   }
 }
