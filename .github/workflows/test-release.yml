@@ -59,6 +59,11 @@ jobs:
           sudo rm -rf "$ANDROID_HOME/system-images" || true
           sudo rm -rf "$ANDROID_HOME/ndk"/* || true
           sudo rm -rf "$ANDROID_HOME/.temp" || true
+          # Hosted runners include toolchains unrelated to this Android build.
+          # Three native Rust targets and the Android resource merger need more
+          # free space than removing old Android SDK components alone provides.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/chromium /usr/share/swift
           sudo apt-get clean
           echo "Disk usage after cleanup:"
           df -h
