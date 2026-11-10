@@ -25,6 +25,10 @@ services:
     init: true
     restart: unless-stopped
     stop_grace_period: 10s
+    environment:
+      VENERA_AI_HIDE_TAGS: '${VENERA_AI_HIDE_TAGS:-false}'
+      VENERA_AI_HIDDEN_TAGS: '${VENERA_AI_HIDDEN_TAGS:-[]}'
+      VENERA_AI_HIDDEN_TAG_FRAGMENTS: '${VENERA_AI_HIDDEN_TAG_FRAGMENTS:-[]}'
     depends_on:
       worker:
         condition: service_healthy

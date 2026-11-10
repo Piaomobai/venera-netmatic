@@ -73,6 +73,20 @@ HTTP 202 只表示请求已持久化接收。轮询状态，直到 `completed`�
 
 请求摘要中的 `priority` 为 `interactive`、`normal` 或 `background`，由服务按命令类型设置。`queueDeadlineAt` 是排队截止时间，`timeoutMs` 为执行预算；开始执行后提供 `startedAt`、`executionDeadlineAt`。状态及请求查询、取消 RPC 不经过业务排队。
 
+如果 AI 通过 HTTP 接入，可在 Compose 项目的 `.env` 中打开标签显示过滤，并设置名单：
+
+```dotenv
+VENERA_AI_HIDE_TAGS=true
+VENERA_AI_HIDDEN_TAGS='["示例标签", "另一个标签"]'
+VENERA_AI_HIDDEN_TAG_FRAGMENTS='["示例词段"]'
+```
+
+开关默认关闭，两个名单默认均为空。即使已经设置名单，也需要显式启用。关闭时将 `VENERA_AI_HIDE_TAGS` 改为 `false`，可保留名单供以后使用。开关支持 `true/false/1/0`。它是网关的启动配置，HTTP 请求不能修改。
+
+首次使用时运行 `docker compose up -d --no-deps --build api` 更新已部署的 API。之后修改开关或名单，运行 `docker compose up -d --no-deps api` 让 Compose 应用新配置。独立 Python 网关使用方法见 [CLI 文档](headless_doc.md)。
+
+启用后，HTTP 网关从搜索、排行、作品详情和书库结果的 `tags` 字段移除匹配项，保留作品、顺序及分页。匹配忽略大小写、全半角差异及首尾空格。全名名单支持标签文本和 `分组:标签` 写法，兼容详情的分组列表及书库的扁平列表。词段名单在标签文本中查找，命中时隐藏整条标签。简繁体请分别列出。配置适用于该网关的全部客户端，只过滤结构化作品标签字段。标签目录、查询条件、标题和简介仍按原样处理。数据库、直接运行的 CLI 和 App 使用原始数据。
+
 可分别覆盖排队和执行预算，例如 `{"args":["search","source-key","关键词","--queue-timeout","10","--timeout","30"]}`。交互查询默认排队 30 秒，普通写请求 10 分钟，NAS 及自动调度 1 小时；执行默认普通查询 60 秒、NAS 查询/测试 2 分钟、下载/调度 1 小时、NAS 传输 6 小时、WebDAV/源更新 5 分钟。`service serve` 自身仍不设默认寿命。
 
 示例客户端从文件读取密钥，不把它放入命令参数或日志：

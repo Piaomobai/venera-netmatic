@@ -67,6 +67,22 @@ python3 docker/api_server.py --socket /short/path/worker.sock \
 
 服务目前支持 Linux/macOS。API 网关与 Flutter worker 分进程；API 只转发请求，不打开数据目录。worker 独占数据目录和数据库，持续检查到期任务。请不要为同一个目录再启动 `scheduler serve` 或额外 CLI。
 
+Linux Release 在 `bundle/headless/` 中附带 `api_server.py`、`ipc_client.py`、`ai-tags.env.example` 和本说明。裸机运行网关需要 Python 3.9 或更高版本。从源码启动时脚本位于 `docker/`，可以直接在宿主机运行。
+
+网关提供可选的标签显示过滤，默认关闭。进入 `bundle/headless/`，复制 `ai-tags.env.example` 为自己的 `ai-tags.env`，设置 `VENERA_AI_HIDE_TAGS=true`，并填写 `VENERA_AI_HIDDEN_TAGS`（完整标签）和 `VENERA_AI_HIDDEN_TAG_FRAGMENTS`（标签中的词段）。文件中的两个名单均使用 JSON 字符串数组。然后加载配置并使用已有 worker 的 socket 和 token 启动网关：
+
+```bash
+set -a
+. ./ai-tags.env
+set +a
+python3 ./api_server.py --socket /short/path/worker.sock \
+  --token-file /private/api-token --host 127.0.0.1 --port 8080
+```
+
+也可以直接传入 `--hide-tags --hidden-tags '["示例标签"]' --hidden-tag-fragments '["示例词段"]'`。显式的 `--hide-tags` 或 `--no-hide-tags` 优先于 `VENERA_AI_HIDE_TAGS` 环境变量。名单与开关在启动时读取，修改后需重启网关。systemd 部署可在已有网关服务中用 `EnvironmentFile=/absolute/path/ai-tags.env` 加载配置，然后重启该服务。`.env` 只由 Compose 自动加载，独立运行 Python 时请使用上述方式加载环境变量。
+
+过滤仅调整 HTTP 返回的作品 `tags` 字段，作品仍可通过书名、排行和详情查询返回。过滤范围与匹配规则见 [Docker 与服务入口](docker_headless.md)。普通 CLI 的 `--headless` 输出使用原始标签，接入 AI 时请连接此网关。
+
 搜索、详情和列表等交互查询可越过等待中的写请求，包括排队的 NAS 同步；普通传输和排行榜扫描执行期间仍可处理这些查询。最多并发 4 个查询，其中慢速 NAS 查询/连接测试最多占 1 个位置。后台请求最多排队 192 条，所有非交互请求合计最多 224 条，为交互查询保留 32 个排队名额，总上限 256 条。
 
 写入仍一次执行一个；前台写请求优先于 NAS 传输和自动调度，等待超过 30 秒的写请求恢复按到达时间排序。NAS 后台工作在交互查询活跃时先延后最多 2 秒，随后可与查询并行。WebDAV 导入、源更新等需要独占数据的操作保持安全屏障：前台独占写请求等待 1 秒或连续放行 8 个交互查询后，暂停接收新查询，待已有查询结束再执行；后台独占操作使用 30 秒等待阈值。已开始的独占操作期间，查询等待或按自己的排队期限退出。图片下载仍使用已有下载并发设置。

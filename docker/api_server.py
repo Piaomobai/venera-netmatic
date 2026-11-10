@@ -9,10 +9,49 @@ import os
 from pathlib import Path
 import signal
 import threading
+import unicodedata
 from urllib.parse import urlsplit
 from ipc_client import call_worker
 
 MAX_BODY = 256 * 1024
+
+def normalize_tag(tag):
+    return unicodedata.normalize('NFKC', tag).strip().casefold()
+
+def filter_comic_tags(value, hidden_tags, hidden_fragments):
+    """Filter comic tag fields in a decoded worker response."""
+    def visible(tags, namespace=None):
+        kept = []
+        for tag in tags:
+            if isinstance(tag, str):
+                normalized = normalize_tag(tag)
+                _, _, unqualified = normalized.partition(':')
+                qualified = normalize_tag(f'{namespace}:{tag}') if namespace else normalized
+                if (
+                    normalized in hidden_tags
+                    or unqualified.strip() in hidden_tags
+                    or qualified in hidden_tags
+                    or any(fragment in normalized for fragment in hidden_fragments)
+                ):
+                    continue
+            kept.append(tag)
+        return kept
+
+    if isinstance(value, list):
+        for entry in value:
+            filter_comic_tags(entry, hidden_tags, hidden_fragments)
+    elif isinstance(value, dict):
+        tags = value.get('tags')
+        if isinstance(tags, list):
+            value['tags'] = visible(tags)
+        elif isinstance(tags, dict):
+            value['tags'] = {
+                group: visible(tags_in_group, group) if isinstance(tags_in_group, list) else tags_in_group
+                for group, tags_in_group in tags.items()
+            }
+        for key, entry in value.items():
+            if key != 'tags':
+                filter_comic_tags(entry, hidden_tags, hidden_fragments)
 
 class Gateway(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -37,6 +76,10 @@ class Gateway(http.server.BaseHTTPRequestHandler):
         except (OSError, ValueError):
             return self.reply(503, {'ok': False, 'code': 'worker_unavailable'})
         if result.get('ok'):
+            if self.server.hide_tags and (self.server.hidden_tags or self.server.hidden_tag_fragments):
+                filter_comic_tags(
+                    result.get('data'), self.server.hidden_tags, self.server.hidden_tag_fragments
+                )
             return self.reply(success, result)
         code = result.get('code')
         status = 404 if code == 'not_found' else 429 if code == 'queue_full' else 400
@@ -118,13 +161,44 @@ def main():
     parser.add_argument('--host', default=os.environ.get('VENERA_API_HOST', '127.0.0.1'))
     parser.add_argument('--port', type=int, default=int(os.environ.get('VENERA_API_PORT', '8080')))
     parser.add_argument('--token-file', default=os.environ.get('VENERA_API_TOKEN_FILE', '/run/secrets/api_token'))
+    parser.add_argument('--hide-tags', action=argparse.BooleanOptionalAction, default=None,
+                        help='Enable tag filtering in HTTP comic results (default: disabled)')
+    parser.add_argument('--hidden-tags', default=os.environ.get('VENERA_AI_HIDDEN_TAGS', '[]'),
+                        help='JSON array of tags to omit from HTTP comic results')
+    parser.add_argument('--hidden-tag-fragments',
+                        default=os.environ.get('VENERA_AI_HIDDEN_TAG_FRAGMENTS', '[]'),
+                        help='JSON array of substrings to match in HTTP comic tags')
     options = parser.parse_args()
+
+    hide_tags = options.hide_tags
+    if hide_tags is None:
+        value = os.environ.get('VENERA_AI_HIDE_TAGS', 'false').strip().casefold()
+        if value not in ('true', 'false', '1', '0'):
+            parser.error('VENERA_AI_HIDE_TAGS must be true, false, 1 or 0')
+        hide_tags = value in ('true', '1')
+
+    def parse_tags(option, value):
+        try:
+            tags = json.loads(value)
+            if not isinstance(tags, list) or any(
+                not isinstance(tag, str) or not normalize_tag(tag) for tag in tags
+            ):
+                raise ValueError()
+            return frozenset(normalize_tag(tag) for tag in tags)
+        except ValueError:
+            parser.error(f'{option} must be a JSON array of nonempty strings')
+
+    hidden_tags = parse_tags('--hidden-tags', options.hidden_tags)
+    hidden_fragments = parse_tags('--hidden-tag-fragments', options.hidden_tag_fragments)
     token = Path(options.token_file).read_text().strip()
     if len(token) < 32 or any(c.isspace() for c in token):
         parser.error('API token must contain at least 32 non-whitespace characters')
     server = Server((options.host, options.port), Gateway)
     server.worker_socket = options.socket
     server.api_token = token
+    server.hide_tags = hide_tags
+    server.hidden_tags = hidden_tags
+    server.hidden_tag_fragments = hidden_fragments
     def stop(*_):
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
