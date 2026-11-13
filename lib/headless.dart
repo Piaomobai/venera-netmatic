@@ -21,14 +21,24 @@ import 'headless/policy.dart';
 void cliPrint(Map<String, dynamic> data) =>
     stdout.writeln('[CLI PRINT] ${jsonEncode(data)}');
 
-Future<void> runHeadlessMode(List<String> args) async {
-  // Native plugins may write diagnostics directly to file descriptor 1,
-  // bypassing Dart's print zone. Keep the CLI protocol on a separate copy of
-  // the original stdout and send native diagnostics to stderr on Linux.
-  IOSink output = stdout;
-  int? protocolFd;
-  int Function(int)? closeFd;
-  if (Platform.isLinux) {
+/// A duplicate of the caller's stdout, kept separate from native plugin logs.
+/// Pipes cannot be reopened as Dart files: doing so attempts to seek on them.
+final class _LinuxProtocolOutput {
+  _LinuxProtocolOutput._(
+    this._fd,
+    this._write,
+    this._malloc,
+    this._free,
+    this._close,
+  );
+
+  final int _fd;
+  final int Function(int, Pointer<Void>, int) _write;
+  final Pointer<Void> Function(int) _malloc;
+  final void Function(Pointer<Void>) _free;
+  final int Function(int) _close;
+
+  static _LinuxProtocolOutput create() {
     final libc = DynamicLibrary.process();
     final dup = libc.lookupFunction<Int32 Function(Int32), int Function(int)>(
       'dup',
@@ -37,27 +47,63 @@ Future<void> runHeadlessMode(List<String> args) async {
         .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
           'dup2',
         );
-    closeFd = libc.lookupFunction<Int32 Function(Int32), int Function(int)>(
+    final close = libc.lookupFunction<Int32 Function(Int32), int Function(int)>(
       'close',
     );
+    final write = libc
+        .lookupFunction<
+          IntPtr Function(Int32, Pointer<Void>, IntPtr),
+          int Function(int, Pointer<Void>, int)
+        >('write');
+    final malloc = libc
+        .lookupFunction<
+          Pointer<Void> Function(IntPtr),
+          Pointer<Void> Function(int)
+        >('malloc');
+    final free = libc
+        .lookupFunction<
+          Void Function(Pointer<Void>),
+          void Function(Pointer<Void>)
+        >('free');
     final fd = dup(1);
     if (fd < 0) throw const FileSystemException('Cannot duplicate stdout');
+    if (dup2(2, 1) < 0) {
+      close(fd);
+      throw const FileSystemException('Cannot redirect native stdout');
+    }
+    return _LinuxProtocolOutput._(fd, write, malloc, free, close);
+  }
+
+  void writeln(String value) {
+    final bytes = utf8.encode('$value\n');
+    final memory = _malloc(bytes.length);
+    if (memory == nullptr) throw const FileSystemException('Out of memory');
     try {
-      final file = File('/proc/self/fd/$fd');
-      // Validate the descriptor before changing process-wide stdout. Append
-      // also preserves existing output when stdout is redirected to a file.
-      final probe = await file.open(mode: FileMode.append);
-      await probe.close();
-      if (dup2(2, 1) < 0) {
-        throw const FileSystemException('Cannot redirect native stdout');
+      final buffer = memory.cast<Uint8>();
+      buffer.asTypedList(bytes.length).setAll(0, bytes);
+      var offset = 0;
+      while (offset < bytes.length) {
+        final count = _write(
+          _fd,
+          (buffer + offset).cast<Void>(),
+          bytes.length - offset,
+        );
+        if (count <= 0) throw const FileSystemException('Cannot write stdout');
+        offset += count;
       }
-      protocolFd = fd;
-      output = file.openWrite(mode: FileMode.append);
-    } catch (_) {
-      closeFd(fd);
-      rethrow;
+    } finally {
+      _free(memory);
     }
   }
+
+  void close() => _close(_fd);
+}
+
+Future<void> runHeadlessMode(List<String> args) async {
+  // Native plugins may write diagnostics directly to file descriptor 1,
+  // bypassing Dart's print zone. Keep the CLI protocol on a separate copy of
+  // the original stdout and send native diagnostics to stderr on Linux.
+  final linuxOutput = Platform.isLinux ? _LinuxProtocolOutput.create() : null;
   final json = args.contains('--json');
   final control = CliControl();
   Timer? timeout;
@@ -65,7 +111,12 @@ Future<void> runHeadlessMode(List<String> args) async {
   var ready = false;
   void emit(Map<String, dynamic> data) {
     final encoded = jsonEncode(data);
-    output.writeln(json ? encoded : '[CLI PRINT] $encoded');
+    final line = json ? encoded : '[CLI PRINT] $encoded';
+    if (linuxOutput != null) {
+      linuxOutput.writeln(line);
+    } else {
+      stdout.writeln(line);
+    }
   }
 
   final result = await runZoned(
@@ -203,16 +254,13 @@ Future<void> runHeadlessMode(List<String> args) async {
     await signal.cancel();
   }
   emit(finalResult.toJson());
-  await output.flush();
+  if (linuxOutput == null) await stdout.flush();
   await stderr.flush();
   // Read and release the retained handle at the end of its lifetime. Without
   // this production use, AOT can remove the write-only field and the file's
   // finalizer releases the OS lock while the worker is still running.
   await App.processLock?.close();
   App.processLock = null;
-  if (protocolFd != null) {
-    await output.close();
-    closeFd!(protocolFd);
-  }
+  linuxOutput?.close();
   exit(finalResult.exitCode);
 }
