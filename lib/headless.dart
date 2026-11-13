@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:venera_netmatic/foundation/app.dart';
@@ -21,6 +22,42 @@ void cliPrint(Map<String, dynamic> data) =>
     stdout.writeln('[CLI PRINT] ${jsonEncode(data)}');
 
 Future<void> runHeadlessMode(List<String> args) async {
+  // Native plugins may write diagnostics directly to file descriptor 1,
+  // bypassing Dart's print zone. Keep the CLI protocol on a separate copy of
+  // the original stdout and send native diagnostics to stderr on Linux.
+  IOSink output = stdout;
+  int? protocolFd;
+  int Function(int)? closeFd;
+  if (Platform.isLinux) {
+    final libc = DynamicLibrary.process();
+    final dup = libc.lookupFunction<Int32 Function(Int32), int Function(int)>(
+      'dup',
+    );
+    final dup2 = libc
+        .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
+          'dup2',
+        );
+    closeFd = libc.lookupFunction<Int32 Function(Int32), int Function(int)>(
+      'close',
+    );
+    final fd = dup(1);
+    if (fd < 0) throw const FileSystemException('Cannot duplicate stdout');
+    try {
+      final file = File('/proc/self/fd/$fd');
+      // Validate the descriptor before changing process-wide stdout. Append
+      // also preserves existing output when stdout is redirected to a file.
+      final probe = await file.open(mode: FileMode.append);
+      await probe.close();
+      if (dup2(2, 1) < 0) {
+        throw const FileSystemException('Cannot redirect native stdout');
+      }
+      protocolFd = fd;
+      output = file.openWrite(mode: FileMode.append);
+    } catch (_) {
+      closeFd(fd);
+      rethrow;
+    }
+  }
   final json = args.contains('--json');
   final control = CliControl();
   Timer? timeout;
@@ -28,7 +65,7 @@ Future<void> runHeadlessMode(List<String> args) async {
   var ready = false;
   void emit(Map<String, dynamic> data) {
     final encoded = jsonEncode(data);
-    stdout.writeln(json ? encoded : '[CLI PRINT] $encoded');
+    output.writeln(json ? encoded : '[CLI PRINT] $encoded');
   }
 
   final result = await runZoned(
@@ -166,12 +203,16 @@ Future<void> runHeadlessMode(List<String> args) async {
     await signal.cancel();
   }
   emit(finalResult.toJson());
-  await stdout.flush();
+  await output.flush();
   await stderr.flush();
   // Read and release the retained handle at the end of its lifetime. Without
   // this production use, AOT can remove the write-only field and the file's
   // finalizer releases the OS lock while the worker is still running.
   await App.processLock?.close();
   App.processLock = null;
+  if (protocolFd != null) {
+    await output.close();
+    closeFd!(protocolFd);
+  }
   exit(finalResult.exitCode);
 }
