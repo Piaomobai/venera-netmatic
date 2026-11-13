@@ -249,15 +249,18 @@ def main():
             run(first, 'scheduler', 'enable', ids[0])
             run(first, 'scheduler', 'update', ids[0], '--name', 'renamed')
             passed.append('Scheduler CRUD, due batch and persisted history')
+            # Keep stdout unbuffered when mixing readline() and communicate().
+            # TextIOWrapper may prefetch subsequent JSON lines, which
+            # communicate() then bypasses while reading the pipe directly.
             daemon = subprocess.Popen(argv(first, 'scheduler', 'serve'), stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True)
+                stderr=subprocess.DEVNULL, bufsize=0)
             try:
                 ready = json.loads(daemon.stdout.readline())
                 assert ready['data']['state'] == 'ready'
                 assert run(first, 'library', 'list', code=3)['code'] == 'app_busy'
                 daemon.send_signal(signal.SIGTERM)
                 stdout, _ = daemon.communicate(timeout=15)
-                assert decode(stdout)[-1]['code'] == 'cancelled'
+                assert decode(stdout.decode())[-1]['code'] == 'cancelled'
                 assert daemon.returncode == 130
             finally:
                 if daemon.poll() is None:
@@ -270,13 +273,13 @@ def main():
             run(third, 'downloads', 'add', 'fixture', 'book', '--enqueue-only')
             Dav.image_delay = 1.5
             transfer = subprocess.Popen(argv(third, 'downloads', 'run'), stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True)
+                stderr=subprocess.DEVNULL, bufsize=0)
             try:
                 progress = json.loads(transfer.stdout.readline())
                 assert progress['status'] == 'running'
                 transfer.send_signal(signal.SIGTERM)
                 stdout, _ = transfer.communicate(timeout=15)
-                assert decode(stdout)[-1]['code'] == 'cancelled'
+                assert decode(stdout.decode())[-1]['code'] == 'cancelled'
                 assert transfer.returncode == 130
             finally:
                 Dav.image_delay = 0
