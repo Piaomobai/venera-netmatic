@@ -174,7 +174,14 @@ def main():
 
         def decode(stdout):
             # Every stdout line must be JSON, including in debug mode.
-            values = [json.loads(line) for line in stdout.splitlines() if line]
+            values = []
+            for line in stdout.splitlines():
+                if not line:
+                    continue
+                try:
+                    values.append(json.loads(line))
+                except json.JSONDecodeError as error:
+                    raise AssertionError(f'Non-JSON CLI output: {line!r}') from error
             assert values, 'No CLI result'
             return values
 
