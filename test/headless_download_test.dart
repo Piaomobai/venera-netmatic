@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:venera_netmatic/foundation/comic_type.dart';
+import 'package:venera_netmatic/foundation/comic_source/comic_source.dart';
 import 'package:venera_netmatic/foundation/local.dart';
 import 'package:venera_netmatic/headless/cli.dart';
 import 'package:venera_netmatic/headless/download_queue.dart';
@@ -9,7 +10,8 @@ import 'package:venera_netmatic/headless/jobs.dart';
 import 'package:venera_netmatic/network/download.dart';
 
 class TestDownload extends DownloadTask {
-  TestDownload(this.id);
+  TestDownload(this.id, {this.type = ComicType.local});
+  final ComicType type;
   final started = Completer<void>();
   final finished = Completer<void>();
   bool failed = false;
@@ -17,7 +19,7 @@ class TestDownload extends DownloadTask {
   @override
   final String id;
   @override
-  ComicType get comicType => ComicType.local;
+  ComicType get comicType => type;
   @override
   Future<void> get settled => finished.future;
   @override
@@ -54,7 +56,41 @@ class TestDownload extends DownloadTask {
   LocalComic toLocalComic() => throw UnimplementedError();
 }
 
+class InitializingDownloadSource implements ComicSource {
+  InitializingDownloadSource(this.ready);
+  final Completer<void> ready;
+  @override
+  String get key => 'download-init-fixture';
+  @override
+  Future<void> ensureInitialized() => ready.future;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
+  test(
+    'download diagnostics classify status codes without exposing URLs or confusing IDs',
+    () {
+      expect(
+        downloadFailure('Error: HTTP 401 token=private')['code'],
+        'authentication_required',
+      );
+      expect(
+        downloadFailure('Invalid status code: 429')['code'],
+        'rate_limited',
+      );
+      expect(
+        downloadFailure('Error: status code of 404')['retryable'],
+        isFalse,
+      );
+      expect(downloadFailure('HTTP 403')['retryable'], isTrue);
+      final unrelated = downloadFailure(
+        'Connection failed https://server/401/book?token=private',
+      );
+      expect(unrelated['code'], 'download_failed');
+      expect(unrelated.toString(), isNot(contains('private')));
+    },
+  );
   late Directory temp;
   late CliJobs jobs;
   late List<DownloadTask> tasks;
@@ -66,6 +102,36 @@ void main() {
     control = CliControl();
   });
   tearDown(() => temp.delete(recursive: true));
+
+  test(
+    'restored downloads await source initialization before resuming',
+    () async {
+      final ready = Completer<void>();
+      final source = InitializingDownloadSource(ready);
+      ComicSourceManager().add(source);
+      try {
+        final task = TestDownload('one', type: ComicType(source.key.hashCode));
+        tasks.add(task);
+        final runner = CliDownloadQueue(
+          tasks: () => tasks,
+          flush: () async {},
+          jobs: jobs,
+          control: control,
+          report: (_) {},
+        );
+        final operation = runner.drain();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(task.started.isCompleted, isFalse);
+        ready.complete();
+        await task.started.future;
+        tasks.remove(task);
+        task.finished.complete();
+        expect((await operation).exitCode, 0);
+      } finally {
+        ComicSourceManager().remove(source.key);
+      }
+    },
+  );
 
   test('waits for transfer finalization and durable queue flush', () async {
     final task = TestDownload('one');

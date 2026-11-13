@@ -12,7 +12,7 @@ import 'app_dio.dart';
 abstract class ImageDownloader {
   static Stream<ImageDownloadProgress> loadThumbnail(
       String url, String? sourceKey,
-      [String? cid]) async* {
+      [String? cid, CancelToken? cancelToken]) async* {
     final cacheKey = "$url@$sourceKey${cid != null ? '@$cid' : ''}";
     final cache = await CacheManager().findCache(cacheKey);
 
@@ -41,7 +41,7 @@ abstract class ImageDownloader {
       var comicSource = ComicSource.find(sourceKey);
       if(comicSource != null) {
         var comicInfo = await comicSource.loadComicInfo!(cid!);
-        yield* loadThumbnail(comicInfo.data.cover, sourceKey);
+        yield* loadThumbnail(comicInfo.data.cover, sourceKey, null, cancelToken);
         return;
       }
     }
@@ -57,7 +57,7 @@ abstract class ImageDownloader {
       requestUrl = 'https:$requestUrl';
     }
     var req = await dio.request<ResponseBody>(requestUrl,
-        data: configs['data']);
+        data: configs['data'], cancelToken: cancelToken);
     var stream = req.data?.stream ?? (throw "Error: Empty response body.");
     int? expectedBytes = req.data!.contentLength;
     if (expectedBytes == -1) {
@@ -117,12 +117,14 @@ abstract class ImageDownloader {
   }
 
   static Stream<ImageDownloadProgress> loadComicImageUnwrapped(
-      String imageKey, String? sourceKey, String cid, String eid) {
-    return _loadComicImage(imageKey, sourceKey, cid, eid);
+      String imageKey, String? sourceKey, String cid, String eid,
+      {CancelToken? cancelToken}) {
+    return _loadComicImage(imageKey, sourceKey, cid, eid, cancelToken: cancelToken);
   }
 
   static Stream<ImageDownloadProgress> _loadComicImage(
-      String imageKey, String? sourceKey, String cid, String eid) async* {
+      String imageKey, String? sourceKey, String cid, String eid,
+      {CancelToken? cancelToken}) async* {
     final cacheKey = "$imageKey@$sourceKey@$cid@$eid";
     final cache = await CacheManager().findCache(cacheKey);
 
@@ -169,7 +171,7 @@ abstract class ImageDownloader {
         ));
 
         var req = await dio.request<ResponseBody>(configs['url'] ?? imageKey,
-            data: configs['data']);
+            data: configs['data'], cancelToken: cancelToken);
         var stream = req.data?.stream ?? (throw "Error: Empty response body.");
         int? expectedBytes = req.data!.contentLength;
         if (expectedBytes == -1) {
@@ -221,6 +223,7 @@ abstract class ImageDownloader {
         );
         return;
       } catch (e) {
+        if (cancelToken?.isCancelled == true) rethrow;
         if (retryLimit < 0 || onLoadFailed == null) {
           rethrow;
         }

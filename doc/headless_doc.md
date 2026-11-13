@@ -40,7 +40,7 @@ macOS 的 headless 从原生入口启动独立 Flutter 引擎，跳过主窗口�
 - `--json`：严格 JSON 行输出；日志与结果分离。
 - `--data-dir PATH`：使用独立配置、Cookie、数据库、队列和任务日志目录。未指定时使用 GUI 的默认目录。
 - `--cache-dir PATH`：指定缓存目录。使用独立 data-dir 时，默认缓存位于其中的 `cache` 子目录。
-- `--timeout SECONDS`：1–86400 秒，覆盖命令执行期限。普通查询默认 60 秒；NAS 查询/测试 2 分钟；下载及调度执行 1 小时；NAS 传输 6 小时；配置同步和源更新 5 分钟。常驻 `service serve` / `scheduler serve` 没有默认进程寿命限制。写入和传输超时后等待当前安全提交或回滚，因此不是强制终止时间。
+- `--timeout SECONDS`：1–86400 秒，覆盖命令执行期限。普通查询默认 60 秒；NAS 查询/测试 2 分钟；调度执行 1 小时；NAS 传输 6 小时；配置同步和源更新 5 分钟。下载命令默认没有整批执行期限，仍可显式设置 --timeout；默认每本连续 5 分钟无进展时暂停该次尝试。常驻 `service serve` / `scheduler serve` 没有默认进程寿命限制。写入和传输超时后等待当前安全提交或回滚，因此不是强制终止时间。
 - `--queue-timeout SECONDS`：1–86400 秒，仅用于向常驻服务提交的命令，限制执行前的排队时间。单次 CLI 传入此选项会返回参数错误。
 - `--ignore-disheadless-log`：兼容旧参数；headless 默认不输出常规应用日志。
 - `--`：后续内容按位置参数读取，可用于以 `--` 开头的搜索词。
@@ -91,7 +91,7 @@ python3 ./api_server.py --socket /short/path/worker.sock \
 
 自动调度每次只执行一项到期任务，结束后交回写入执行位。NAS 定时同步可让扫描、下载规划先执行；NAS 任务逾期 5 分钟后恢复按到期时间排序。排行榜逐页、逐漫画详情读取、等待初始化和节流等待均检查取消；单次源读取默认上限 60 秒。NAS 文件枚举、哈希分块和传输文件边界也检查取消，已开始的文件安装或上传提交会先安全结束。
 
-HTTP 命令异步返回 request ID，使用该 ID 查询结果或取消。已接受的排队请求和最近 100 条终态结果保存在 worker 数据目录；网关重启不影响任务。worker 重启后恢复排队请求，执行中请求标为 `interrupted`，不会自动重做可能有副作用的命令。已保存的下载队列可以通过 `downloads run` 继续；定时任务仍按自身的恢复和重试规则运行。`--enqueue-only` 只保存下载队列，需要另行提交 `downloads run`。
+HTTP 命令异步返回 request ID，使用该 ID 查询结果或取消。已接受的排队请求和最近 100 条终态结果保存在 worker 数据目录；网关重启不影响任务。worker 重启后恢复排队请求，执行中请求标为 `interrupted`，不会自动重做可能有副作用的命令。下载会话另行持久化续跑意图，按下文规则恢复下载。已保存的下载队列可以通过 `downloads run` 继续；定时任务仍按自身的恢复和重试规则运行。`--enqueue-only` 只保存下载队列，需要另行提交 `downloads run`。
 
 接口、鉴权、错误码和部署示例见 [Docker 与服务入口](docker_headless.md)。
 
@@ -113,6 +113,7 @@ HTTP 命令异步返回 request ID，使用该 ID 查询结果或取消。已接
 | `categories options <sourceKey> <category>` | 分类筛选值及默认值，可传 `--param`；等待源动态选项加载 |
 | `categories get <sourceKey> <category>` | 分类漫画；`--param VALUE --options '["value"]' --page N` |
 | `tags resolve <sourceKey> <namespace> <tag>` | 将详情标签解析为源定义的搜索/分类目标；不启动 GUI |
+| `tags search <sourceKey> <namespace> <tag>` | 按 App 点击标签的源规则直接查询漫画；支持 `--page/--cursor/--options` |
 | `comic get <sourceKey> <comicId>` | 漫画详情 |
 | `comic chapters <sourceKey> <comicId>` | 章节目录 |
 | `library list` | 本地书库 |
@@ -134,6 +135,7 @@ venera --headless --json ranking get picacg H24
 venera --headless --json categories list picacg
 venera --headless --json categories get picacg '全彩' --options '["ld"]' --page 2
 venera --headless --json tags resolve picacg Tags '标签'
+venera --headless --json tags search picacg Tags '冒险' --page 1
 venera --headless --json comic get mysource comic-id
 venera --headless --json library list --query '作者或标题' --limit 20
 venera --headless --json favorites list --folder '追更'
@@ -145,6 +147,10 @@ venera --headless --json nas library nas-id --query '标题'
 排行选项必须来自 `ranking options`；picacg 的 `H24`、`D7`、`D30` 分别为日、周、月榜。分类选项来自 `categories options`，动态选项在查询前等待加载，隐藏规则与分类名称一起应用。排行、分类和标签目标查询均属于交互优先级，可以越过排队中的 NAS 工作。
 
 `tags resolve` 返回目标，不自动打开页面。`target.action` 为 `search` 时，将 `target.query` 传给 search；为 `category` 时，将 `target.category`、`target.param` 传给 categories get。picacg 的普通 Tags 标签走搜索，Categories 标签走分类，Author 标签走作者分类（param 为 a）。不支持的 GUI 目标返回 unsupported，不执行任意脚本或 URL。
+
+`tags search` 在一次命令中完成上述解析和查询，复用 App 的 `comic.onClickTag` 规则，直接返回搜索或分类的漫画列表及分页信息。分组名使用源定义的原名，例如 `Tags`、`Categories`、`Author`。源目标附带的排序选项会自动使用，传入 `--options` 可显式覆盖。搜索目标支持源提供的页码或游标分页，分类目标仅支持 `--page`。源没有标签跳转规则或目标不受支持时返回 `unsupported`。查询范围由源定义。
+
+AI 可通过 `POST /v1/commands` 提交 `{"args":["tags","search","picacg","Tags","冒险","--page","1"]}`，再按 request ID 读取结果。它与普通搜索使用相同的交互队列、执行超时和取消控制。网关的标签显示过滤继续应用于返回作品的 `tags` 字段。
 
 源初始化钩子会在实际调用前等待。需要网页登录或对话框交互的源无法保证全自动；请在 GUI 中完成交互后重试。CLI 不提供任意 JavaScript 或 shell 执行入口。
 
@@ -167,11 +173,52 @@ venera --headless --json downloads remove mysource comic-id
 
 下载使用现有增量规划器，跳过本地已有章节，保留图片并发下载设置；队列中的漫画依次执行。未指定章节时补齐缺失章节。指定的章节必须存在，且数组不能为空。
 
-默认命令会等待**整个队列**执行完成。已有队列项的章节范围或 NAS 目标不会被静默替换；需要修改时先移除该队列项再提交。
+默认下载命令会等待**本轮启动时队列的尝试**完成。失败项会保留，成功完成一轮只表示该轮处理成功；持续批量下载请使用下文的托管会话。已有队列项的章节范围或 NAS 目标不会被静默替换；需要修改时先移除该队列项再提交。
 
 队列以顺序写入、临时文件替换的方式保存。只有本地漫画注册、文件写入、可选 NAS 上传以及队列持久化完成后，CLI 才报告下载完成。失败项保留在队列中，使用 `downloads run` 重试。队列损坏或缺少恢复所需漫画源时保留原文件并报错，避免覆盖尚未恢复的任务。
 
 `--enqueue-only` 返回 jobId 和 `queued`，需要后续执行 `downloads run`；它本身不启动后台服务。作业日志保存在 data-dir 下的 `headless_jobs.json`。重启后，原 running 状态按 interrupted 显示。完成及取消记录保留最近 200 条，未完成记录保留。
+
+## Worker 托管批量下载
+
+持续下载使用现有的 `service serve` worker 和 HTTP 网关，裸机 Linux Release 也适用。新增命令只通过 worker 执行，独立启动普通 CLI 会返回 `service_required`。
+
+| 命令 | 行为 |
+|---|---|
+| `downloads start` | 持久化启动意图并立即返回会话 ID；重复启动返回同一会话 |
+| `downloads status` | 查询状态、进度、剩余数量、失败项和重试时间 |
+| `downloads stop` | 安全暂停，保存用户暂停意图 |
+| `downloads resume` | 显式恢复，并为剩余失败项重置重试预算 |
+
+先通过 `downloads add <源> <ID> --enqueue-only` 提交漫画，并确认请求完成，再提交 `downloads start`。会话执行期间仍可追加 `--enqueue-only` 请求，这些请求最多占用一个查询位置，为搜索保留其他位置。普通下载添加请求在会话运行或暂停期间也只入队。
+
+会话每次安排一本漫画，完成后交回执行位，再处理后续漫画。下载会话没有默认整批期限，客户端断开不会停止下载。启动会话时已有的普通下载执行请求会被安全暂停，由会话继续处理队列。NAS、调度和需要独占的导入操作仍通过原队列协调。
+
+启动和恢复支持 `--max-attempts N`（1–20，默认 3）、`--retry-delay SECONDS`（1–3600，默认 60）、`--idle-timeout SECONDS`（1–3600，默认 300）和 `--max-runtime SECONDS`（0–86400，默认 0 不限总时长）。设置在后续会话中保留；运行或暂停中的会话需要先 stop 再 resume 才应用新设置。
+
+会话总时限使用 `--max-runtime`；全局 `--timeout` 只约束本次启动或控制请求，不充当后台会话的总时限。`waiting_enqueue` 表示还有已接收的添加请求尚未提交漫画，会话会等待这些请求完成后再判断队列是否清空。
+
+网络类失败按单本漫画退避重试，等待间隔逐次翻倍，最长一小时；期间可继续下载其他漫画。重试耗尽或资源明确不可访问时保留失败项，最后进入 `completed_with_errors`。认证失败和磁盘问题暂停会话，处理原因后显式 resume。普通 `downloads list` 和作业日志提供不含账号、请求头及签名 URL 的错误分类。
+
+会话状态保存在 data-dir 的 `download_session.json`。正常工作时意外退出或 worker 重启，会恢复续跑意图和重试时间，已完成的漫画跳过。用户 stop 后，重启保持暂停，start 也不会覆盖该暂停，使用 resume 才会继续。状态包含 `stopReason`、`lastError`、`lastProgressAt`、`activeTask` 和 `nextRetryAt`。
+
+### AI 请求等待与重连
+
+Linux Release 的 `bundle/headless/headless_client.py` 可提交一次并等待同一请求；从源码运行时位于 `docker/`。示例使用已有网关和 token 文件：
+
+```bash
+python3 headless_client.py --token-file /private/api-token \
+  --request-file /private/start-request.json downloads start
+python3 headless_client.py --token-file /private/api-token downloads status
+python3 headless_client.py --token-file /private/api-token downloads stop
+python3 headless_client.py --token-file /private/api-token downloads resume
+```
+
+客户端默认等待请求进入终态。可用 `--wait-seconds 180` 限制本地轮询时间；到期返回 `terminal:false`、`requestId` 和退出码 75，不取消或重提。重新运行同一 `--request-file`，或传 `--request-id ID`，会继续查询原请求。请求文件不能复用于不同命令；每个新操作使用新文件，或省略请求文件。提交遇到网络错误不会自动重发 POST，避免接受状态不明时重复执行。
+
+旧的 `downloads run` 调用继续可用；服务端对同时排队或运行的重复 run 返回同一 request ID，包括其实际执行及排队期限。新传入的期限不会覆盖已有请求，检查返回值中的 `timeoutMs` 和 `queueDeadlineAt`。
+
+没有整批执行期限时，`timeoutMs` 为 `null`，也没有 `executionDeadlineAt`；显式传入 `--timeout` 时仍返回实际期限。旧请求保留提交时已经持久化的执行预算，更新 worker 后如需切换为托管会话，提交 `downloads start` 完成安全接续。
 
 ## NAS 与 WebDAV 同步
 

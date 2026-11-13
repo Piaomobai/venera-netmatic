@@ -1,18 +1,19 @@
-/// Execution limits also apply to one-shot CLI commands. Daemons have no
-/// implicit lifetime limit; their individual service requests are bounded.
+/// Explicit limits also apply to one-shot CLI commands. Downloads use idle
+/// detection by default; other ordinary requests retain an execution budget.
 Duration? defaultExecutionTimeout(String command) {
-  if (['service serve', 'scheduler serve', 'help'].contains(command)) {
+  if ([
+    'service serve',
+    'scheduler serve',
+    'help',
+    'downloads add',
+    'downloads run',
+  ].contains(command)) {
     return null;
   }
   if (['nas upload', 'nas download'].contains(command)) {
     return const Duration(hours: 6);
   }
-  if ([
-    'downloads add',
-    'downloads run',
-    'scheduler run',
-    'scheduler rundue',
-  ].contains(command)) {
+  if (['scheduler run', 'scheduler rundue'].contains(command)) {
     return const Duration(hours: 1);
   }
   if ([

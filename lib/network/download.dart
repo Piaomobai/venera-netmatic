@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:venera_netmatic/foundation/async_control.dart';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -160,6 +162,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       return;
     }
     _isRunning = false;
+    _coverCancellation?.cancel();
     _message = "Paused";
     _currentSpeed = 0;
     var shouldMove = <int>[];
@@ -180,6 +183,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   double get progress => _totalCount == 0 ? 0 : _downloadedCount / _totalCount;
 
   bool _isRunning = false;
+  CancelToken? _coverCancellation;
 
   bool _isError = false;
 
@@ -277,9 +281,35 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         });
   }
 
+  Future<Res<T>> _runWithRetry<T>(
+    Future<T> Function() task, {
+    bool readsOnly = true,
+  }) async {
+    void check() {
+      if (!_isRunning) throw StateError('Download paused');
+    }
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        check();
+        final operation = task();
+        final value = readsOnly
+            ? await waitCancellable(operation, checkCancelled: check)
+            : await operation;
+        check();
+        return Res(value);
+      } catch (error) {
+        if (!_isRunning || attempt == 2) return Res.error(error.toString());
+        await Future<void>.delayed(Duration(seconds: attempt + 1));
+      }
+    }
+    throw StateError('Download retry budget exhausted');
+  }
+
   Future<void> _resume() async {
     if (_isRunning) return;
     _isError = false;
+    _coverCancellation = CancelToken();
     _message = "Resuming...";
     _isRunning = true;
     notifyListeners();
@@ -336,6 +366,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         await for (var progress in ImageDownloader.loadThumbnail(
           comic!.cover,
           source.key,
+          null,
+          _coverCancellation,
         )) {
           if (progress.imageBytes != null) {
             data = progress.imageBytes;
@@ -348,7 +380,8 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
         var file = File(FilePath.join(path!, "cover${fileType.ext}"));
         file.writeAsBytesSync(data);
         return "file://${file.path}";
-      });
+      }, readsOnly: false);
+      if (!_isRunning) return;
       if (res.error) {
         Log.error("Download", res.errorMessage!);
         _setError("Error: ${res.errorMessage}");
@@ -360,7 +393,12 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
       await LocalManager().saveCurrentDownloadingTasks();
     }
 
-    if (_images == null) {
+    final expectedChapters = comic!.chapters?.allChapters.keys.where(
+      (chapter) => chapters == null || chapters!.contains(chapter),
+    );
+    if (_images == null ||
+        (expectedChapters?.any((chapter) => !_images!.containsKey(chapter)) ??
+            false)) {
       if (comic!.chapters == null) {
         _message = "Fetching image list...";
         notifyListeners();
@@ -384,7 +422,7 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
           _totalCount = _images!['']!.length;
         }
       } else {
-        _images = {};
+        _images ??= {};
         _totalCount = 0;
         int cpCount = 0;
         int totalCpCount =
@@ -593,23 +631,6 @@ class ImagesDownloadTask extends DownloadTask with _TransferSpeedMixin {
   int get hashCode => Object.hash(comicId, source.key);
 }
 
-Future<Res<T>> _runWithRetry<T>(
-  Future<T> Function() task, {
-  int retry = 3,
-}) async {
-  for (var i = 0; i < retry; i++) {
-    try {
-      return Res(await task());
-    } catch (e) {
-      if (i == retry - 1) {
-        return Res.error(e.toString());
-      }
-      await Future.delayed(Duration(seconds: i + 1));
-    }
-  }
-  throw UnimplementedError();
-}
-
 class _ImageDownloadWrapper {
   final ImagesDownloadTask task;
 
@@ -637,9 +658,11 @@ class _ImageDownloadWrapper {
 
   bool isCancelled = false;
   bool _hasSettled = false;
+  final _cancellation = CancelToken();
 
   void cancel() {
     isCancelled = true;
+    _cancellation.cancel();
   }
 
   var completers = <Completer<_ImageDownloadWrapper>>[];
@@ -654,6 +677,7 @@ class _ImageDownloadWrapper {
         task.source.key,
         task.comicId,
         chapter,
+        cancelToken: _cancellation,
       )) {
         if (isCancelled) {
           return;

@@ -28,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: python3 -B tool/headless_gateway_test.py
+      - run: python3 -B tool/headless_client_test.py
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:

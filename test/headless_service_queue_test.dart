@@ -706,4 +706,70 @@ void main() {
     expect(request.result!.exitCode, 130);
     await queue.shutdown();
   });
+  test('duplicate download drains reuse the same accepted request', () async {
+    final release = Completer<void>();
+    var executions = 0;
+    final queue = ServiceQueue(
+      directory: directory.path,
+      execute: (_, _, _) async {
+        executions++;
+        await release.future;
+        return const CliResult(null);
+      },
+    );
+    final requests = await Future.wait(
+      List.generate(20, (_) => queue.submit(['downloads', 'run'])),
+    );
+    expect(requests.map((r) => r.id).toSet(), hasLength(1));
+    expect(requests.first.executionTimeout, isNull);
+    expect(requests.first.summary()['timeoutMs'], isNull);
+    release.complete();
+    await waitDone(requests.first);
+    expect(executions, 1);
+    final next = await queue.submit(['downloads', 'run']);
+    expect(next.id, isNot(requests.first.id));
+    await waitDone(next);
+    await queue.shutdown();
+  });
+
+  test(
+    'enqueue-only submissions leave query slots available during a transfer',
+    () async {
+      final transferRelease = Completer<void>();
+      final enqueueRelease = Completer<void>();
+      var activeEnqueues = 0;
+      var maxEnqueues = 0;
+      final live = ServiceQueue(
+        directory: directory.path,
+        execute: (request, _, _) async {
+          if (request.command == 'downloads run') await transferRelease.future;
+          if (request.command == 'downloads add') {
+            activeEnqueues++;
+            if (activeEnqueues > maxEnqueues) maxEnqueues = activeEnqueues;
+            await enqueueRelease.future;
+            activeEnqueues--;
+          }
+          return const CliResult(null);
+        },
+      );
+      final transfer = await live.submit(['downloads', 'run']);
+      for (var i = 0; i < 5; i++) {
+        await live.submit([
+          'downloads',
+          'add',
+          'fixture',
+          '$i',
+          '--enqueue-only',
+        ]);
+      }
+      final query = await live.submit(['search', 'fixture', 'q']);
+      await waitDone(query);
+      expect(query.state, 'completed');
+      expect(transfer.state, 'running');
+      expect(maxEnqueues, 1);
+      enqueueRelease.complete();
+      transferRelease.complete();
+      await live.shutdown();
+    },
+  );
 }

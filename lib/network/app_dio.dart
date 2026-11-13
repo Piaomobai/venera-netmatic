@@ -209,7 +209,10 @@ class RHttpAdapter implements HttpClientAdapter {
       options.headers['User-Agent'] = "venera/v${App.version}";
     }
 
-    var res = await rhttp.Rhttp.request(
+    final token = rhttp.CancelToken();
+    cancelFuture?.then((_) => unawaited(token.cancel()));
+    final response = rhttp.Rhttp.request(
+      cancelToken: token,
       method: rhttp.HttpMethod(options.method),
       url: options.uri.toString(),
       settings: await settings,
@@ -223,6 +226,20 @@ class RHttpAdapter implements HttpClientAdapter {
         ),
       ),
     );
+    // A header deadline on requests with a body would also time the upload.
+    // Receive-stream idle limits remain Dio's responsibility.
+    final res = await (requestStream == null
+        ? response.timeout(
+            options.receiveTimeout ?? const Duration(seconds: 15),
+            onTimeout: () {
+              unawaited(token.cancel());
+              throw DioException.receiveTimeout(
+                timeout: options.receiveTimeout ?? const Duration(seconds: 15),
+                requestOptions: options,
+              );
+            },
+          )
+        : response);
     if (res is! rhttp.HttpStreamResponse) {
       throw Exception("Invalid response type: ${res.runtimeType}");
     }

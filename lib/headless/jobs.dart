@@ -63,13 +63,16 @@ class CliJobs {
     String state, {
     Object? result,
     String? error,
+    String? errorCode,
   }) async {
     final job = _jobs.firstWhere((e) => e['id'] == id);
     job['state'] = state;
     job['updatedAt'] = DateTime.now().toUtc().toIso8601String();
     if (result != null) job['result'] = result;
     job.remove('error');
+    job.remove('errorCode');
     if (error != null) job['error'] = error;
+    if (errorCode != null) job['errorCode'] = errorCode;
     await _save();
   }
 

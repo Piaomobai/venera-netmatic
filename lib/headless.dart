@@ -37,13 +37,18 @@ Future<void> runHeadlessMode(List<String> args) async {
       if (request.command == 'help') {
         return CliResult({
           'usage': 'venera --headless [--json] <command> [arguments] [options]',
-          'commands': CliRequest.specs.map(
-            (name, spec) => MapEntry(name, {
-              'minArguments': spec.$1,
-              'maxArguments': spec.$2,
-              'options': spec.$3.toList(),
-            }),
-          ),
+          'commands':
+              Map.fromEntries(
+                CliRequest.specs.entries.where(
+                  (entry) => entry.key != 'downloads step',
+                ),
+              ).map(
+                (name, spec) => MapEntry(name, {
+                  'minArguments': spec.$1,
+                  'maxArguments': spec.$2,
+                  'options': spec.$3.toList(),
+                }),
+              ),
           'globalOptions': [
             '--json',
             '--data-dir PATH',

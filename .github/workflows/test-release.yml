@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag
         required: true
-        default: v2.1.1
+        default: v2.1.2
 
 concurrency:
   group: test-release-${{ inputs.tag }}
@@ -235,7 +235,7 @@ jobs:
         run: |
           mkdir -p dist
           mkdir -p build/linux/x64/release/bundle/headless
-          cp docker/api_server.py docker/ipc_client.py docker/ai-tags.env.example build/linux/x64/release/bundle/headless/
+          cp docker/api_server.py docker/ipc_client.py docker/headless_client.py docker/ai-tags.env.example build/linux/x64/release/bundle/headless/
           cp doc/headless_doc.md doc/docker_headless.md doc/headless_auth.md build/linux/x64/release/bundle/headless/
           tar -C build/linux/x64/release -czf "dist/${RELEASE_BASENAME}-linux-x64.tar.gz" bundle
       - uses: actions/upload-artifact@v7

@@ -11,6 +11,7 @@ import 'commands.dart';
 import 'jobs.dart';
 import 'service_queue.dart';
 import 'credentials.dart';
+import 'download_session.dart';
 
 class HeadlessService {
   HeadlessService(this.request, this.control, this.jobs, this.report);
@@ -20,6 +21,7 @@ class HeadlessService {
   final void Function(Map<String, dynamic>) report;
   final engine = SchedulerEngine();
   late final ServiceQueue queue;
+  late final DownloadSession downloads;
   bool closing = false;
 
   Future<CliResult> serve() async {
@@ -88,6 +90,7 @@ class HeadlessService {
           jobs,
           progress,
           managedScheduler: true,
+          downloadSession: downloads,
         ).execute();
         try {
           await App.local.flushDownloadingTasks();
@@ -109,7 +112,15 @@ class HeadlessService {
         }
       },
     );
+    downloads = DownloadSession(
+      directory: App.dataPath,
+      tasks: () => App.local.downloadingTasks,
+      flush: App.local.flushDownloadingTasks,
+      jobs: jobs,
+      queue: queue,
+    );
     await queue.load();
+    await downloads.load();
     final server = await ServerSocket.bind(
       InternetAddress(path, type: InternetAddressType.unix),
       0,
@@ -145,6 +156,7 @@ class HeadlessService {
 
     final timer = Timer.periodic(const Duration(seconds: 1), (_) {
       unawaited(checkDue());
+      unawaited(downloads.tick());
     });
     queue.start();
     report({'state': 'ready', 'mode': 'service', 'pid': pid, 'socket': path});
@@ -157,11 +169,18 @@ class HeadlessService {
       timer.cancel();
       await server.close();
       await subscription.cancel();
-      await queue.shutdown();
-      engine.close();
-      if (await FileSystemEntity.type(path, followLinks: false) !=
-          FileSystemEntityType.notFound) {
-        await socketFile.delete();
+      try {
+        await downloads.close();
+      } finally {
+        try {
+          await queue.shutdown();
+        } finally {
+          engine.close();
+          if (await FileSystemEntity.type(path, followLinks: false) !=
+              FileSystemEntityType.notFound) {
+            await socketFile.delete();
+          }
+        }
       }
     }
     control.check();
@@ -234,6 +253,7 @@ class HeadlessService {
             'scheduledTasks': engine.tasks.length,
             'schedulerActiveTaskId': engine.activeTaskId,
             'schedulerProgress': engine.activeProgress,
+            'downloadSession': downloads.status,
           },
         };
       case 'list':

@@ -9,6 +9,7 @@ from pathlib import Path
 import secrets
 import select
 import signal
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -69,7 +70,16 @@ def main():
             source = source.replace('search = { load: async (query, options, page) => {',
                 '''search = { load: async (query, options, page) => {
     if (query === "slow") await new Promise(resolve => setTimeout(resolve, 3500));''')
-            source = source.replace('title: query,', 'title: query === "ranking-count" ? String(this.rankingCalls) : query,')
+            source = source.replace('title: query,', 'title: query === "ranking-count" ? String(this.rankingCalls) : query === "metadata-count" ? String(this.sessionMetadataCalls || 0) : query,')
+            source = source.replace(
+                'loadEp: async (id, ep) => ({images: ["http://127.0.0.1:PORT/image.png?1", "http://127.0.0.1:PORT/image.png?2"]})',
+                '''loadEp: async (id, ep) => {
+                  if (id === "session-meta") {
+                    this.sessionMetadataCalls = (this.sessionMetadataCalls || 0) + 1;
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                  }
+                  return {images: ["http://127.0.0.1:PORT/image.png?1", "http://127.0.0.1:PORT/image.png?2"]};
+                }''')
             (profile / 'comic_source' / 'fixture.js').write_text(source.replace('PORT', str(server.server_port)))
             settings = {'nasConnections': [{'id': 'nas', 'name': 'Fixture NAS', 'protocol': 'webdav',
                 'host': f'http://127.0.0.1:{server.server_port}', 'username': 'fixture',
@@ -218,6 +228,88 @@ def main():
             assert all(set(item['downloadedChapters']) == {'one', 'two'} for item in local)
             assert len(remote) == 2
             assert all(set(item['downloadedChapters']) == {'one', 'two'} for item in remote)
+            # Durable sessions outlive API clients, admit new work during a
+            # transfer, and distinguish explicit pause from worker restart.
+            Dav.image_delay = 3
+            wait(submit(['downloads', 'add', 'fixture', 'session-one', '--enqueue-only']))
+            session_id = wait(submit(['downloads', 'start']))['result']['data']['sessionId']
+
+            def session_status():
+                return call('/v1/status')[1]['data']['downloadSession']
+
+            def session_running():
+                for _ in range(200):
+                    info = session_status()
+                    if info['activeRequestId']:
+                        item = call('/v1/requests/' + info['activeRequestId'])[1]['data']
+                        if item['state'] == 'running':
+                            assert item['timeoutMs'] is None
+                            return
+                    time.sleep(0.05)
+                raise AssertionError('Session did not start its transfer')
+
+            session_running()
+            wait(submit(['downloads', 'add', 'fixture', 'session-two', '--enqueue-only']))
+            assert session_status()['remaining'] == 2
+            assert wait(submit(['downloads', 'start']))['result']['data']['sessionId'] == session_id
+            stopped = wait(submit(['downloads', 'stop']))['result']['data']
+            assert stopped['enabled'] is False and stopped['stopReason'] == 'user_paused'
+
+            def restart_worker():
+                nonlocal worker
+                worker.terminate()
+                worker.wait(timeout=20)
+                assert worker.returncode == 130
+                worker = subprocess.Popen(worker.args, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, text=True)
+                children.append(worker)
+                ready(worker)
+
+            restart_worker()
+            assert session_status()['state'] == 'paused'
+            wait(submit(['downloads', 'resume']))
+            session_running()
+            restart_worker()
+            assert session_status()['enabled'] is True
+            Dav.image_delay = 0
+            for _ in range(600):
+                info = session_status()
+                if info['state'] == 'completed':
+                    break
+                time.sleep(0.05)
+            else:
+                raise AssertionError(('Session did not finish after restart', info))
+            assert info['remaining'] == 0
+            assert wait(submit(['library', 'list']))['result']['data']['total'] == 4
+            # Pause after only the first chapter's image list is ready. Resume
+            # must fetch the remaining chapter instead of committing a partial book.
+            wait(submit(['downloads', 'add', 'fixture', 'session-meta', '--enqueue-only']))
+            wait(submit(['downloads', 'start']))
+            for _ in range(100):
+                metadata_calls = wait(submit(['search', 'fixture', 'metadata-count']))['result']['data']['items'][0]['title']
+                if int(metadata_calls) >= 2:
+                    break
+                time.sleep(0.05)
+            else:
+                raise AssertionError('Chapter metadata did not start')
+            wait(submit(['downloads', 'stop']))
+            wait(submit(['downloads', 'resume']))
+            for _ in range(400):
+                if session_status()['state'] == 'completed':
+                    break
+                time.sleep(0.05)
+            else:
+                raise AssertionError(('Metadata-interrupted download did not finish', session_status()))
+            metadata_calls = wait(submit(['search', 'fixture', 'metadata-count']))['result']['data']['items'][0]['title']
+            assert int(metadata_calls) >= 3
+            assert wait(submit(['library', 'list']))['result']['data']['total'] == 5
+            with sqlite3.connect(f'file:{profile}/local.db?mode=ro', uri=True) as db:
+                directory = Path(db.execute(
+                    'SELECT directory FROM comics WHERE id = ?', ('session-meta',)).fetchone()[0])
+            if not directory.is_absolute():
+                directory = profile / 'local' / directory
+            images = [path for path in directory.rglob('*.png') if not path.name.startswith('cover')]
+            assert len(images) == 4, images
             print(json.dumps({'passed': True, 'checks': ['API authentication', 'separate PIDs',
                 'runtime option isolation', 'source query', 'live query during download',
                 'gateway restart leaves worker running', 'NAS upload and credential redaction',
@@ -225,7 +317,11 @@ def main():
                 'automatic scheduled incremental download and NAS sync',
                 'worker excludes other CLI owners', 'query priority over queued NAS work',
                 'queued NAS deadline', 'stalled query execution deadline and cancellation',
-                'ranking cancellation while waiting for a page']}, indent=2))
+                'ranking cancellation while waiting for a page',
+                'session accepts enqueues during transfer', 'idempotent session start',
+                'explicit pause survives restart', 'active session resumes after restart',
+                'session transfer has no fixed wall-clock cutoff',
+                'pause during chapter metadata resumes every chapter']}, indent=2))
     finally:
         Dav.image_delay = 0
         for child in reversed(children):

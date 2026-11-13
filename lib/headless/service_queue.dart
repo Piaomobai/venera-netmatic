@@ -25,7 +25,7 @@ class ServiceRequest {
   String createdAt = DateTime.now().toUtc().toIso8601String();
   String updatedAt = DateTime.now().toUtc().toIso8601String();
   late DateTime queueDeadline;
-  late Duration executionTimeout;
+  late Duration? executionTimeout;
   DateTime? startedAt;
   DateTime? executionDeadline;
   Map<String, dynamic>? progress;
@@ -35,10 +35,16 @@ class ServiceRequest {
   bool _accepted = false;
   Timer? _queueTimer;
   Future<void>? running;
+  Future<void>? _acceptance;
 
-  bool get isRead => ServiceQueue._reads.contains(request.command);
+  bool get isEnqueueOnly =>
+      request.command == 'downloads add' &&
+      request.options.containsKey('enqueue-only');
+  bool get isRead =>
+      ServiceQueue._reads.contains(request.command) || isEnqueueOnly;
   bool get isBackground =>
       origin == 'scheduler' ||
+      origin == 'download-session' ||
       ServiceQueue._background.contains(request.command);
   String get priority => isBackground
       ? 'background'
@@ -56,7 +62,8 @@ class ServiceRequest {
     'createdAt': createdAt,
     'updatedAt': updatedAt,
     'queueDeadlineAt': queueDeadline.toIso8601String(),
-    'timeoutMs': executionTimeout.inMilliseconds,
+    'timeoutMs': executionTimeout?.inMilliseconds,
+    if (result?.code != null) 'stopReason': result!.code,
     if (startedAt != null) 'startedAt': startedAt!.toIso8601String(),
     if (executionDeadline != null)
       'executionDeadlineAt': executionDeadline!.toIso8601String(),
@@ -114,6 +121,7 @@ class ServiceQueue {
     'categories options',
     'categories get',
     'tags resolve',
+    'tags search',
     'comic get',
     'comic chapters',
     'library list',
@@ -122,6 +130,10 @@ class ServiceQueue {
     'jobs list',
     'jobs get',
     'downloads list',
+    'downloads start',
+    'downloads status',
+    'downloads stop',
+    'downloads resume',
     'nas list',
     'nas test',
     'nas library',
@@ -139,13 +151,18 @@ class ServiceQueue {
   static const _transferWrites = {
     'downloads add',
     'downloads run',
+    'downloads step',
     'nas upload',
     'nas download',
     'scheduler run',
     'scheduler rundue',
   };
 
-  static CliRequest validate(List<dynamic> args, {bool allowLogin = false}) {
+  static CliRequest validate(
+    List<dynamic> args, {
+    bool allowLogin = false,
+    bool allowInternal = false,
+  }) {
     if (args.isEmpty ||
         args.length > 64 ||
         args.any((e) => e is! String) ||
@@ -157,6 +174,12 @@ class ServiceQueue {
       );
     }
     final request = CliRequest.parse(args.cast<String>());
+    if (request.command == 'downloads step' && !allowInternal) {
+      throw const CliException(
+        'invalid_arguments',
+        'Internal download operation.',
+      );
+    }
     if (request.command == 'service serve' ||
         request.command == 'scheduler serve' ||
         request.options.keys.any(
@@ -201,12 +224,12 @@ class ServiceQueue {
         : policy.commandQueueTimeout;
   }
 
-  Duration _executionLimit(ServiceRequest r) =>
-      r.request.options.containsKey('timeout')
+  Duration? _executionLimit(ServiceRequest r) =>
+      r.origin == 'download-session' && r.request.command == 'downloads step'
+      ? null
+      : r.request.options.containsKey('timeout')
       ? Duration(seconds: r.request.integer('timeout', 60, min: 1, max: 86400))
-      : policy.executionTimeout ??
-            defaultExecutionTimeout(r.request.command) ??
-            const Duration(minutes: 1);
+      : policy.executionTimeout ?? defaultExecutionTimeout(r.request.command);
 
   bool get stopping => _stopping;
   bool get hasScheduledBatch => records.values.any(
@@ -247,7 +270,11 @@ class ServiceQueue {
       final map = Map<String, dynamic>.from(item as Map);
       final r = ServiceRequest(
         map['id'] as String,
-        validate(map['args'] as List, allowLogin: true),
+        validate(
+          map['args'] as List,
+          allowLogin: true,
+          allowInternal: map['origin'] == 'download-session',
+        ),
         origin: map['origin'] as String? ?? 'api',
       );
       r.state = map['state'] == 'running'
@@ -314,7 +341,24 @@ class ServiceQueue {
     SourceCredentials? credentials,
   }) async {
     if (_stopping) throw const CliException('stopping', 'Worker is stopping.');
-    final request = validate(args, allowLogin: credentials != null);
+    final request = validate(
+      args,
+      allowLogin: credentials != null,
+      allowInternal: origin == 'download-session',
+    );
+    if (request.command == 'downloads run') {
+      final existing = records.values
+          .where(
+            (r) =>
+                r.request.command == 'downloads run' &&
+                ['queued', 'running'].contains(r.state),
+          )
+          .firstOrNull;
+      if (existing != null) {
+        await existing._acceptance;
+        return existing;
+      }
+    }
     if (credentials != null && request.command != 'sources login') {
       throw const CliException(
         'invalid_arguments',
@@ -343,7 +387,8 @@ class ServiceQueue {
     records[r.id] = r;
     _pending.add(r);
     try {
-      await _save();
+      r._acceptance = _save();
+      await r._acceptance;
     } catch (_) {
       _pending.remove(r);
       records.remove(r.id);
@@ -426,10 +471,14 @@ class ServiceQueue {
   ServiceRequest? _nextRead() {
     final reads = _pending.where((r) => r._accepted && r.isRead).toList();
     for (final r in reads) {
-      if (!r.isBackground) return r;
+      if (!r.isBackground && !r.isEnqueueOnly) return r;
+    }
+    if (!_readers.any((r) => r.isEnqueueOnly)) {
+      final enqueue = reads.where((r) => r.isEnqueueOnly).firstOrNull;
+      if (enqueue != null) return enqueue;
     }
     if (_readers.where((r) => r.isBackground).isNotEmpty) return null;
-    return reads.isEmpty ? null : reads.first;
+    return reads.where((r) => r.isBackground).firstOrNull;
   }
 
   void _wakeAfter(Duration delay) {
@@ -512,7 +561,9 @@ class ServiceQueue {
     }
     r.state = 'running';
     r.startedAt = DateTime.now().toUtc();
-    r.executionDeadline = r.startedAt!.add(r.executionTimeout);
+    r.executionDeadline = r.executionTimeout == null
+        ? null
+        : r.startedAt!.add(r.executionTimeout!);
     r.running = _run(r).whenComplete(() {
       _readers.remove(r);
       if (identical(_writer, r)) _writer = null;
@@ -522,10 +573,12 @@ class ServiceQueue {
 
   Future<void> _run(ServiceRequest r) async {
     r.updatedAt = r.startedAt!.toIso8601String();
-    final timeout = Timer(r.executionTimeout, () {
-      r.control.timedOut = true;
-      onCancel?.call(r);
-    });
+    final timeout = r.executionTimeout == null
+        ? null
+        : Timer(r.executionTimeout!, () {
+            r.control.timedOut = true;
+            onCancel?.call(r);
+          });
     var result = await cliGuard(() async {
       await _save();
       r.control.check();
@@ -544,7 +597,7 @@ class ServiceQueue {
       }
       return outcome;
     });
-    timeout.cancel();
+    timeout?.cancel();
     // A transport may fail while cancellation/timeout is taking effect. Keep
     // the terminal reason consistent with the stop that was requested.
     final completed = result;

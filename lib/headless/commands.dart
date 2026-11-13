@@ -20,6 +20,7 @@ import 'package:venera_netmatic/pages/comic_source_page.dart';
 import 'package:venera_netmatic/utils/data_sync.dart';
 import 'cli.dart';
 import 'download_queue.dart';
+import 'download_session.dart';
 import 'jobs.dart';
 import 'credentials.dart';
 import 'source_auth.dart';
@@ -31,8 +32,10 @@ class HeadlessCommands {
     this.jobs,
     this.report, {
     this.managedScheduler = false,
+    this.downloadSession,
   });
   final bool managedScheduler;
+  final DownloadSession? downloadSession;
   final CliRequest request;
   final CliControl control;
   final CliJobs jobs;
@@ -165,6 +168,9 @@ class HeadlessCommands {
         ? 'queued'
         : 'running',
     'progress': t.progress,
+    'paused': t.isPaused,
+    'bytesPerSecond': t.speed,
+    if (t.isError) 'error': downloadFailure(t.message),
     'jobId': jobs.pendingDownload(t.comicType.sourceKey, t.id),
   };
 
@@ -185,22 +191,158 @@ class HeadlessCommands {
 
   Future<List<CategoryComicsOptions>> categoryOptions(
     CategoryComicsData data,
+    String category,
+    String? param,
   ) async {
     final options = data.optionsLoader == null
         ? data.options ?? const <CategoryComicsOptions>[]
-        : checked(
-            await network(
-              data.optionsLoader!(args[1], request.options['param']),
-            ),
-          );
+        : checked(await network(data.optionsLoader!(category, param)));
     control.check();
     return options
         .where(
           (option) =>
-              !option.notShowWhen.contains(args[1]) &&
-              (option.showWhen == null || option.showWhen!.contains(args[1])),
+              !option.notShowWhen.contains(category) &&
+              (option.showWhen == null || option.showWhen!.contains(category)),
         )
         .toList();
+  }
+
+  Future<CliResult> queryCategory(
+    ComicSource s,
+    String category,
+    String? param, {
+    List<String>? initialOptions,
+    bool optionsOnly = false,
+  }) async {
+    if (request.options.containsKey('cursor')) {
+      throw const CliException(
+        'invalid_arguments',
+        'Category queries require page pagination.',
+        exitCode: 2,
+      );
+    }
+    final categories = s.categoryComicsData;
+    if (categories == null) {
+      throw const CliException(
+        'unsupported',
+        'Source does not support category browsing.',
+      );
+    }
+    final available = await categoryOptions(categories, category, param);
+    if (optionsOnly) {
+      return CliResult({
+        'sourceKey': s.key,
+        'category': category,
+        'param': param,
+        'options': available
+            .map(
+              (option) => {
+                'label': option.label,
+                'values': option.options,
+                'default': option.options.keys.firstOrNull ?? '',
+              },
+            )
+            .toList(),
+      });
+    }
+    final options =
+        request.strings('options') ??
+        List.generate(
+          available.length,
+          (i) =>
+              initialOptions?.elementAtOrNull(i) ??
+              available[i].options.keys.firstOrNull ??
+              '',
+        );
+    if (options.length != available.length ||
+        Iterable.generate(
+          options.length,
+        ).any((i) => !available[i].options.containsKey(options[i]))) {
+      throw const CliException(
+        'invalid_arguments',
+        'Category options must match categories options output.',
+        exitCode: 2,
+      );
+    }
+    final number = request.integer('page', 1, min: 1);
+    final result = await network(
+      categories.load(category, param, options, number),
+    );
+    return CliResult({
+      'sourceKey': s.key,
+      'category': category,
+      'param': param,
+      'items': checked(result).map((comic) => comic.toJson()).toList(),
+      'pagination': 'page',
+      'page': number,
+      'maxPage': result.subData,
+    });
+  }
+
+  Future<CliResult> querySearch(
+    ComicSource s,
+    String query, {
+    List<String>? initialOptions,
+  }) async {
+    final search = s.searchPageData;
+    if (search == null) {
+      throw const CliException(
+        'unsupported',
+        'Source does not support search.',
+      );
+    }
+    final defaults =
+        search.searchOptions?.map((o) => o.defaultValue).toList() ?? <String>[];
+    final options =
+        request.strings('options') ??
+        (initialOptions?.length == defaults.length
+            ? initialOptions!
+            : defaults);
+    if (options.length != (search.searchOptions?.length ?? 0)) {
+      throw const CliException(
+        'invalid_arguments',
+        'Search option count does not match source.',
+        exitCode: 2,
+      );
+    }
+    for (var i = 0; i < options.length; i++) {
+      final option = search.searchOptions![i];
+      if (option.type == 'select' && !option.options.containsKey(options[i])) {
+        throw const CliException(
+          'invalid_arguments',
+          'Invalid search option.',
+          exitCode: 2,
+        );
+      }
+    }
+    Res<List<Comic>> result;
+    String pagination;
+    if (request.options.containsKey('cursor') || search.loadPage == null) {
+      if (search.loadNext == null || request.options.containsKey('page')) {
+        throw const CliException(
+          'invalid_arguments',
+          'This search requires cursor pagination.',
+          exitCode: 2,
+        );
+      }
+      result = await network(
+        search.loadNext!(query, request.options['cursor'], options),
+      );
+      pagination = 'cursor';
+    } else {
+      result = await network(
+        search.loadPage!(query, request.integer('page', 1, min: 1), options),
+      );
+      pagination = 'page';
+    }
+    return CliResult({
+      'sourceKey': s.key,
+      'items': checked(result).map((e) => e.toJson()).toList(),
+      'pagination': pagination,
+      if (pagination == 'page') 'page': request.integer('page', 1),
+      if (pagination == 'page') 'maxPage': result.subData,
+      if (pagination == 'cursor') 'nextCursor': result.subData,
+    });
   }
 
   Future<CliResult> execute() async {
@@ -211,7 +353,11 @@ class HeadlessCommands {
           'globalOptions': ['--timeout SECONDS', '--queue-timeout SECONDS'],
           'commands': CliRequest.specs.entries
               .where(
-                (e) => !['service serve', 'scheduler serve'].contains(e.key),
+                (e) => ![
+                  'service serve',
+                  'scheduler serve',
+                  'downloads step',
+                ].contains(e.key),
               )
               .map(
                 (e) => {
@@ -370,60 +516,14 @@ class HeadlessCommands {
         });
       case 'categories options':
       case 'categories get':
-        final s = await source(args[0]);
-        final categories = s.categoryComicsData;
-        if (categories == null) {
-          throw const CliException(
-            'unsupported',
-            'Source does not support category browsing.',
-          );
-        }
-        final available = await categoryOptions(categories);
-        if (request.command == 'categories options') {
-          return CliResult({
-            'sourceKey': s.key,
-            'category': args[1],
-            'param': request.options['param'],
-            'options': available
-                .map(
-                  (option) => {
-                    'label': option.label,
-                    'values': option.options,
-                    'default': option.options.keys.firstOrNull ?? '',
-                  },
-                )
-                .toList(),
-          });
-        }
-        final options =
-            request.strings('options') ??
-            available
-                .map((option) => option.options.keys.firstOrNull ?? '')
-                .toList();
-        if (options.length != available.length ||
-            Iterable.generate(
-              options.length,
-            ).any((i) => !available[i].options.containsKey(options[i]))) {
-          throw const CliException(
-            'invalid_arguments',
-            'Category options must match categories options output.',
-            exitCode: 2,
-          );
-        }
-        final number = request.integer('page', 1, min: 1);
-        final result = await network(
-          categories.load(args[1], request.options['param'], options, number),
+        return queryCategory(
+          await source(args[0]),
+          args[1],
+          request.options['param'],
+          optionsOnly: request.command == 'categories options',
         );
-        return CliResult({
-          'sourceKey': s.key,
-          'category': args[1],
-          'param': request.options['param'],
-          'items': checked(result).map((comic) => comic.toJson()).toList(),
-          'pagination': 'page',
-          'page': number,
-          'maxPage': result.subData,
-        });
       case 'tags resolve':
+      case 'tags search':
         final s = await source(args[0]);
         final target = s.handleClickTagEvent?.call(args[1], args[2]);
         if (target == null || !['search', 'category'].contains(target.page)) {
@@ -433,75 +533,57 @@ class HeadlessCommands {
           );
         }
         control.check();
-        return CliResult({
-          'sourceKey': s.key,
-          'namespace': args[1],
-          'tag': args[2],
-          'target': jumpTarget(target),
-        });
+        if (request.command == 'tags resolve') {
+          return CliResult({
+            'sourceKey': s.key,
+            'namespace': args[1],
+            'tag': args[2],
+            'target': jumpTarget(target),
+          });
+        }
+        final attributes = target.attributes;
+        final initialOptions = attributes?['options'];
+        if (initialOptions != null &&
+            (initialOptions is! List ||
+                initialOptions.any((option) => option is! String))) {
+          throw const CliException(
+            'source_error',
+            'Invalid tag target options.',
+          );
+        }
+        final targetSource = target.sourceKey == s.key
+            ? s
+            : await source(target.sourceKey);
+        if (target.page == 'search') {
+          final query = attributes?['text'] ?? attributes?['keyword'] ?? '';
+          if (query is! String) {
+            throw const CliException(
+              'source_error',
+              'Invalid tag search target.',
+            );
+          }
+          return querySearch(
+            targetSource,
+            query,
+            initialOptions: (initialOptions as List?)?.cast<String>(),
+          );
+        }
+        final category = attributes?['category'];
+        final param = attributes?['param'];
+        if (category is! String || (param != null && param is! String)) {
+          throw const CliException(
+            'source_error',
+            'Invalid tag category target.',
+          );
+        }
+        return queryCategory(
+          targetSource,
+          category,
+          param as String?,
+          initialOptions: (initialOptions as List?)?.cast<String>(),
+        );
       case 'search':
-        final s = await source(args[0]);
-        final search = s.searchPageData;
-        if (search == null) {
-          throw const CliException(
-            'unsupported',
-            'Source does not support search.',
-          );
-        }
-        final options =
-            request.strings('options') ??
-            search.searchOptions?.map((o) => o.defaultValue).toList() ??
-            [];
-        if (options.length != (search.searchOptions?.length ?? 0)) {
-          throw const CliException(
-            'invalid_arguments',
-            'Search option count does not match source.',
-            exitCode: 2,
-          );
-        }
-        for (var i = 0; i < options.length; i++) {
-          final option = search.searchOptions![i];
-          if (option.type == 'select' &&
-              !option.options.containsKey(options[i])) {
-            throw const CliException(
-              'invalid_arguments',
-              'Invalid search option.',
-              exitCode: 2,
-            );
-          }
-        }
-        Res<List<Comic>> result;
-        String pagination;
-        if (request.options.containsKey('cursor') || search.loadPage == null) {
-          if (search.loadNext == null || request.options.containsKey('page')) {
-            throw const CliException(
-              'invalid_arguments',
-              'This search requires cursor pagination.',
-              exitCode: 2,
-            );
-          }
-          result = await network(
-            search.loadNext!(args[1], request.options['cursor'], options),
-          );
-          pagination = 'cursor';
-        } else {
-          result = await network(
-            search.loadPage!(
-              args[1],
-              request.integer('page', 1, min: 1),
-              options,
-            ),
-          );
-          pagination = 'page';
-        }
-        return CliResult({
-          'sourceKey': s.key,
-          'items': checked(result).map((e) => e.toJson()).toList(),
-          'pagination': pagination,
-          if (pagination == 'page') 'page': request.integer('page', 1),
-          if (pagination == 'page') 'maxPage': result.subData,
-          if (pagination == 'cursor') 'nextCursor': result.subData,
-        });
+        return querySearch(await source(args[0]), args[1]);
       case 'comic get':
         return CliResult((await details(args[0], args[1])).toJson());
       case 'comic chapters':
@@ -573,9 +655,39 @@ class HeadlessCommands {
         return CliResult({
           'tasks': local.downloadingTasks.map(queueItem).toList(),
         });
+      case 'downloads start':
+      case 'downloads resume':
+      case 'downloads status':
+      case 'downloads stop':
+      case 'downloads step':
+        final session = downloadSession;
+        if (session == null) {
+          throw const CliException(
+            'service_required',
+            'Download sessions require the service worker API.',
+          );
+        }
+        if (request.command == 'downloads status') {
+          return CliResult(session.status);
+        }
+        if (request.command == 'downloads stop') return session.stop();
+        if (request.command == 'downloads step') {
+          return session.executeStep(request, control, report);
+        }
+        return session.start(
+          request,
+          resume: request.command == 'downloads resume',
+        );
       case 'downloads add':
         return addDownload();
       case 'downloads run':
+        if (downloadSession?.enabled == true) {
+          return CliResult(
+            downloadSession!.status,
+            status: 'skipped',
+            message: 'The download session already owns this queue.',
+          );
+        }
         return queue.drain();
       case 'downloads remove':
         final matches = local.downloadingTasks
@@ -593,6 +705,7 @@ class HeadlessCommands {
           if (id != null) await jobs.update(id, 'cancelled');
         }
         await local.flushDownloadingTasks();
+        await downloadSession?.forget(args[0], args[1]);
         return const CliResult(
           null,
           message: 'Removed from queue; downloaded files retained.',
@@ -784,7 +897,9 @@ class HeadlessCommands {
       (t) => t.id == args[1] && t.comicType.sourceKey == s.key,
     );
     final jobId = await queue.jobFor(task);
-    if (request.options.containsKey('enqueue-only')) {
+    if (request.options.containsKey('enqueue-only') ||
+        downloadSession?.enabled == true ||
+        downloadSession?.state == 'paused') {
       return CliResult(
         {'jobId': jobId, 'task': queueItem(task)},
         status: 'queued',
@@ -904,6 +1019,10 @@ class HeadlessCommands {
     TaskRunOutcome outcome,
   ) async {
     if (['incrementalDownload', 'rankingMonitor'].contains(task.typeKey)) {
+      if (downloadSession?.enabled == true ||
+          downloadSession?.state == 'paused') {
+        return outcome;
+      }
       final downloads = await queue.drain();
       control.check();
       return TaskRunOutcome(
